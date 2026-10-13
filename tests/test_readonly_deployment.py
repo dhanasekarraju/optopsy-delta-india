@@ -49,14 +49,14 @@ def test_readonly_cli_import_does_not_require_numpy_or_pandas():
         [
             sys.executable,
             "-c",
-            "import builtins\n"
+            ("import builtins\n"
             "_old = builtins.__import__\n"
             "def _guard(name, *args, **kwargs):\n"
             "    if name.split('.', 1)[0] in ('numpy', 'pandas'):\n"
             "        raise AssertionError('unwanted research dependency during capture import')\n"
             "    return _old(name, *args, **kwargs)\n"
             "builtins.__import__ = _guard\n"
-            "import optopsy_delta.cli\n",
+            "import optopsy_delta.cli\n"),
         ],
         capture_output=True,
         text=True,

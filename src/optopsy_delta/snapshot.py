@@ -106,7 +106,7 @@ def write_snapshot(folder: str | Path, *, underlying: str,
     return target
 
 
-def snapshots_to_daily_optopsy(snapshots: list[dict]) -> pd.DataFrame:
+def snapshots_to_daily_optopsy(snapshots: list[dict]):
     """Export ONE quote per contract per UTC day for Optopsy's DAILY engine.
 
     NEVER treat this output as an intraday backtest. All original snapshots remain
