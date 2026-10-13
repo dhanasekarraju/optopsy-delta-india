@@ -15,6 +15,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from .client import SignatureError
+
 
 class SafetyWatchdogError(ValueError):
     """Invalid or untrusted safety observation."""
@@ -45,11 +47,16 @@ def observe_safety(
     product_position: Any, lifecycle_status: Any, exit_status: Any,
     expiry: datetime | None = None, exit_cutoff: datetime | None = None,
     max_broker_age_seconds: int = 30,
+    broker_unavailable_reason: str | None = None,
 ) -> dict:
     """Evaluate an observation, always refusing trade authorization."""
     now = _utc(now, "now")
     if type(broker_healthy) is not bool:
         raise SafetyWatchdogError("Invalid broker health flag")
+    if broker_unavailable_reason not in (None, "CREDENTIALS_MISSING"):
+        raise SafetyWatchdogError("Invalid broker failure classification")
+    if broker_healthy and broker_unavailable_reason is not None:
+        raise SafetyWatchdogError("Healthy broker cannot have a failure reason")
     if type(max_broker_age_seconds) is not int or not 1 <= max_broker_age_seconds <= 60:
         raise SafetyWatchdogError("Invalid observation freshness window")
     if product_id is not None and (type(product_id) is not int or product_id <= 0):
@@ -65,7 +72,10 @@ def observe_safety(
     issues: set[str] = set()
     exposure = None
     if not broker_healthy:
-        issues.add("BROKER_UNREACHABLE_OR_INVALID")
+        issues.add(
+            "BROKER_CREDENTIALS_MISSING" if broker_unavailable_reason == "CREDENTIALS_MISSING"
+            else "BROKER_UNREACHABLE_OR_INVALID"
+        )
     else:
         if broker_checked_at is None:
             issues.add("BROKER_OBSERVATION_TIMESTAMP_MISSING")
@@ -154,13 +164,17 @@ def read_only_watchdog_check(
     """GET only, one time; redact all broker failures."""
     override_now = _utc(now, "now") if now is not None else None
     checked_at = None
+    broker_unavailable_reason = None
     try:
         positions = client.open_positions()
         orders = client.active_orders()
         product = client.product_position(product_id) if product_id is not None else None
         checked_at = datetime.now(UTC) if override_now is None else override_now
         healthy = True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - boundary must redact and fail closed
+        broker_unavailable_reason = (
+            "CREDENTIALS_MISSING" if isinstance(exc, SignatureError) else None
+        )
         positions = None
         orders = None
         product = None
@@ -172,6 +186,7 @@ def read_only_watchdog_check(
         product_id=product_id, product_position=product,
         lifecycle_status=lifecycle_status, exit_status=exit_status,
         expiry=expiry, exit_cutoff=exit_cutoff,
+        broker_unavailable_reason=broker_unavailable_reason,
     )
 
 
