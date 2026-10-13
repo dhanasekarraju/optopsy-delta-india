@@ -20,6 +20,8 @@ def _parser() -> argparse.ArgumentParser:
     p = cmds.add_parser("export-daily", help="Daily-only Optopsy-compatible CSV (NOT intraday)")
     p.add_argument("--directory", default="data/delta-snapshots")
     p.add_argument("--output", required=True)
+    p = cmds.add_parser("screen-calls", help="Read-only original Optopsy call candidates from snapshot")
+    p.add_argument("--snapshot", required=True)
     cmds.add_parser("private-status", help="Read wallets, position count and open-order count; no writes")
     return parser
 
@@ -48,6 +50,11 @@ def main(argv: list[str] | None = None) -> int:
         df = snapshots_to_daily_optopsy(snapshots)
         df.to_csv(output, index=False)
         print(f"Exported {len(df)} daily contract quotes to {output}; NOT intraday evidence")
+        return 0
+    if args.command == "screen-calls":
+        from .contract_selection import screen_snapshot_file
+
+        print(json.dumps(screen_snapshot_file(args.snapshot), indent=2))
         return 0
     if args.command == "private-status":
         client = DeltaClient()
