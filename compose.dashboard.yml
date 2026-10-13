@@ -27,6 +27,7 @@ services:
       OPTOPSY_LIVE_ENABLED: "NO"
       OPTOPSY_PAPER_DB: "data/paper-optopsy.sqlite"
       OPTOPSY_LIVE_HEARTBEAT: "data/live-heartbeat.json"
+      OPTOPSY_LIVE_ATTEMPTS: "data/live-attempts.sqlite"
     command: ["python", "-m", "optopsy_delta.dashboard"]
     entrypoint: []
     volumes:

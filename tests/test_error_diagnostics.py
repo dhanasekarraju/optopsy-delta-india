@@ -39,3 +39,17 @@ def test_live_heartbeat_reader_is_tolerant(tmp_path):
     good = tmp_path / "good.json"
     good.write_text('{"event":"HOLD","at":"t","api_key":"nope"}')
     assert _read_live_heartbeat(str(good)) == {"event": "HOLD", "at": "t"}
+
+
+def test_live_orders_reader_is_read_only_and_tolerant(tmp_path):
+    from datetime import UTC, datetime
+
+    from optopsy_delta.dashboard import _read_live_orders
+    from optopsy_delta.live_worker import AttemptBook
+    path = tmp_path / "a.sqlite"
+    assert _read_live_orders(str(path)) == []
+    book = AttemptBook(path)
+    book.add(signal_id="s1", side="buy", product_id=7, underlying="BTC", day="2026-10-13",
+             now=datetime.now(UTC))
+    rows = _read_live_orders(str(path))
+    assert rows[0]["side"] == "buy" and rows[0]["product_id"] == 7 and rows[0]["resolved"] == 0

@@ -199,3 +199,16 @@ def test_unknown_submit_outcome_blocks_all_new_orders(env):
     out = cycle(env, client, transport, sig=entry_signal)
     assert out["event"] == "RECOVERY_REQUIRED_RECONCILE_FAILED"
     assert transport.sent == []
+
+
+def test_standby_when_not_enabled_writes_heartbeat_and_never_trades(tmp_path, monkeypatch):
+    import json
+
+    from optopsy_delta.live_worker import main
+    monkeypatch.delenv("OPTOPSY_LIVE_ENABLED", raising=False)
+    config = tmp_path / "config.toml"
+    config.write_text("paper_enabled = false\n")
+    code = main(["--once", "--data-dir", str(tmp_path / "d"), "--config", str(config)])
+    beat = json.loads((tmp_path / "d" / "live-heartbeat.json").read_text())
+    assert code == 3 and beat["event"] == "LIVE_STANDBY_NOT_ENABLED"
+    assert beat["real_orders_sent"] == 0

@@ -387,18 +387,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not 30 <= args.interval <= 3600:
         parser.error("Interval must be from 30 to 3600 seconds")
-    try:
-        require_live(args.config)
-    except ModeError as exc:
-        print(json.dumps({"mode": "LIVE", "event": "LIVE_NOT_ENABLED", "detail": str(exc),
-                          "real_orders_sent": 0}), flush=True)
-        return 3
-    key, secret = os.getenv("DELTA_TRADE_API_KEY", ""), os.getenv("DELTA_TRADE_API_SECRET", "")
-    if not key or not secret:
-        print(json.dumps({"mode": "LIVE", "event": "TRADING_CREDENTIALS_MISSING"}), flush=True)
-        return 3
     data_dir = Path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    key, secret = os.getenv("DELTA_TRADE_API_KEY", ""), os.getenv("DELTA_TRADE_API_SECRET", "")
+    while True:  # Standby (no restart loop) until BOTH interlocks and the keys are present.
+        standby = None
+        try:
+            require_live(args.config)
+        except ModeError as exc:
+            standby = {"event": "LIVE_STANDBY_NOT_ENABLED", "detail": str(exc)}
+        else:
+            if not key or not secret:
+                standby = {"event": "TRADING_CREDENTIALS_MISSING"}
+        if standby is None:
+            break
+        standby.update(mode="LIVE", at=datetime.now(UTC).isoformat(), real_orders_sent=0)
+        _heartbeat(data_dir, standby)
+        print(json.dumps(standby, sort_keys=True), flush=True)
+        if args.once:
+            return 3
+        time.sleep(args.interval)
     journal = LiveIntentJournal(data_dir / "live-orders.sqlite")
     book = AttemptBook(data_dir / "live-attempts.sqlite")
     transport = DeltaTradingTransport(api_key=key, api_secret=secret, live_enabled=True)

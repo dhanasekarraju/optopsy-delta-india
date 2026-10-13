@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,92 +24,139 @@ PORT = 8097
 HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Optopsy Delta | Safety Console</title>
+<title>Optopsy Delta | Control Room</title>
 <style>
-:root{color-scheme:dark;font:15px system-ui,sans-serif;--bg:#0b1321;--panel:#132238;--line:#304259;--muted:#9db0c8;--text:#f0f5ff;--red:#ff9c9c;--accent:#86c4ff}
-*{box-sizing:border-box}body{background:var(--bg);color:var(--text);margin:0;padding:2.3rem 1.2rem}
-main{max-width:1060px;margin:auto}header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1rem;align-items:center;margin-bottom:2rem}
-h1{margin:.2rem 0;font-size:clamp(1.6rem,4vw,2.3rem)}h2{font-size:1rem;margin:0 0 1rem}
-p{line-height:1.55}.eyebrow{color:var(--accent);font-weight:700;letter-spacing:.13em;font-size:.76rem}
-.muted{color:var(--muted)}.tag{border:1px solid #8c4343;border-radius:100px;padding:.5rem .9rem;color:var(--red);font-size:.8rem;font-weight:800}
-.layout{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1rem}
-article{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.2rem}
-.value{font-size:1.6rem;font-weight:800;margin-top:.3rem;overflow-wrap:anywhere}
-.wide{margin-top:1rem}.warnings{margin:0;padding-left:1.25rem;line-height:1.85;color:var(--red)}
-small{color:var(--muted)}.footer{margin-top:1.8rem;border-top:1px solid var(--line);padding-top:1rem}
-button{background:#23486d;border:1px solid #5f8bb8;color:#fff;border-radius:8px;padding:.6rem 1rem;cursor:pointer}
-button:focus-visible{outline:2px solid white}
-@media(max-width:640px){body{padding:1rem}header{align-items:flex-start}}
+:root{color-scheme:dark;font:15px system-ui,-apple-system,Segoe UI,sans-serif;--bg:#0a111d;--panel:#122033;--panel2:#0f1a2b;--line:#2a3d57;--muted:#8fa4bf;--text:#eef4ff;--green:#4ade80;--amber:#fbbf24;--red:#ff8a8a;--blue:#7cc0ff;--grey:#7b8ba3}
+*{box-sizing:border-box}body{background:radial-gradient(1200px 500px at 70% -10%,#16294a 0,var(--bg) 60%);color:var(--text);margin:0;padding:1.6rem 1rem 3rem}
+main{max-width:1080px;margin:auto}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1rem;align-items:flex-end;margin-bottom:1.4rem}
+.eyebrow{color:var(--blue);font-weight:700;letter-spacing:.14em;font-size:.72rem}
+h1{margin:.2rem 0 0;font-size:clamp(1.5rem,4vw,2.1rem)}h2{font-size:.78rem;letter-spacing:.09em;text-transform:uppercase;margin:0 0 .7rem;color:var(--muted)}
+.muted{color:var(--muted)}p{line-height:1.5;margin:.3rem 0}
+.pills{display:flex;gap:.5rem;flex-wrap:wrap}
+.pill{border-radius:999px;padding:.4rem .85rem;font-size:.76rem;font-weight:800;border:1px solid var(--line);background:var(--panel2)}
+.pill.green{color:var(--green);border-color:#1f6b3f}.pill.amber{color:var(--amber);border-color:#7a5b10}
+.pill.red{color:var(--red);border-color:#8c4343}.pill.grey{color:var(--grey)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.9rem;margin-top:.9rem}
+article{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.1rem 1.2rem}
+.hero{display:flex;gap:1rem;align-items:center;border-left:5px solid var(--grey)}
+.hero.green{border-left-color:var(--green)}.hero.amber{border-left-color:var(--amber)}.hero.red{border-left-color:var(--red)}
+.big{font-size:1.45rem;font-weight:800;overflow-wrap:anywhere}.value{font-size:1.55rem;font-weight:800;overflow-wrap:anywhere}
+.sub{font-size:.82rem;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:.5rem .4rem;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em}
+.tbl{overflow-x:auto}.buy{color:var(--green);font-weight:700}.sell{color:var(--amber);font-weight:700}
+ul{margin:0;padding-left:1.2rem;line-height:1.8}ul.warn{color:var(--amber)}
+details{margin-top:.7rem;color:var(--muted)}summary{cursor:pointer}
+button{background:#1f4469;border:1px solid #5f8bb8;color:#fff;border-radius:8px;padding:.5rem .95rem;cursor:pointer}
+button:focus-visible{outline:2px solid #fff}.row{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:1.2rem}
+.wide{margin-top:.9rem}
 </style></head><body><main>
-<header><div><div class="eyebrow">DELTA INDIA / OPTOPSY</div>
-<h1>Trading Safety Console</h1>
-<p class="muted">Read-only broker observations — not an execution engine</p></div>
-<div class="tag">LIVE ORDERS DISABLED</div></header>
-<section class="layout" aria-label="Account summary">
-<article><h2 class="muted">Private API</h2><div class="value" id="broker">Checking...</div></article>
-<article><h2 class="muted">Open positions</h2><div class="value" id="positions">—</div></article>
-<article><h2 class="muted">Active orders</h2><div class="value" id="orders">—</div></article>
-<article><h2 class="muted">USD available</h2><div class="value" id="cash">—</div></article>
-<article><h2 class="muted">Capital limit</h2><div class="value">₹5,000</div>
-<small>Includes ₹500 reserved; no live deployment</small></article>
-<article><h2 class="muted">Readiness</h2><div class="value" id="readiness">BLOCKED</div></article>
+<header><div><div class="eyebrow">DELTA INDIA / OPTOPSY</div><h1>Control Room</h1>
+<p class="muted">Read-only view of the live worker and broker. This page cannot place orders.</p></div>
+<div class="pills"><span class="pill grey" id="pill-mode">CHECKING</span><span class="pill grey" id="pill-beat">NO HEARTBEAT</span></div></header>
+
+<article class="hero" id="hero"><div><h2>Live worker</h2><div class="big" id="live-state">—</div>
+<p class="sub" id="live-detail">—</p></div></article>
+
+<section class="grid" aria-label="Account">
+<article><h2>Open positions</h2><div class="value" id="positions">—</div><div class="sub">at broker</div></article>
+<article><h2>Active orders</h2><div class="value" id="orders">—</div><div class="sub">at broker</div></article>
+<article><h2>USD available</h2><div class="value" id="cash">—</div><div class="sub" id="broker">—</div></article>
+<article><h2>Capital limit</h2><div class="value">₹5,000</div><div class="sub">₹500 reserve, 1 contract at a time</div></article>
 </section>
-<article class="wide"><h2>Launch blockers / operator attention</h2>
-<ul id="issues" class="warnings"><li>Loading status...</li></ul>
-<p class="muted" id="journal">No trading journals created by this dashboard.</p></article>
-<article class="wide"><h2>Paper strategy account (simulated)</h2>
-<div class="layout"><div><small>Paper status</small><div class="value" id="paper-state">—</div></div>
-<div><small>Paper cash ₹</small><div class="value" id="paper-cash">—</div></div>
-<div><small>Closed trades</small><div class="value" id="paper-closed">—</div></div>
-<div><small>Realized P&L ₹</small><div class="value" id="paper-pnl">—</div></div></div>
-<p id="paper-position">Paper position: —</p><p id="paper-event" class="muted">—</p></article>
-<article class="wide"><h2>Live worker</h2>
-<p id="live-state" class="value">—</p><p id="live-detail" class="muted">—</p></article>
-<article class="wide"><h2>Observed at</h2><p id="observed">—</p>
-<p class="muted">This page refreshes every 30 seconds. Exchange snapshots are not atomic.
-No alert delivery, autonomous exits, or broker-order protection is active.</p>
-<button id="refresh" type="button">Refresh now</button></article>
-<div class="footer muted">The ₹5,000 policy is a proposed cap, not a funded wallet.
-No buy/sell, order-enable, API-key entry, or cancel controls are exposed.</div>
+
+<article class="wide"><h2>Recent live orders</h2><div class="tbl"><table><thead><tr>
+<th>Time (UTC)</th><th>Side</th><th>Market</th><th>Product</th><th>Filled</th><th>State</th></tr></thead>
+<tbody id="orders-body"><tr><td colspan="6" class="muted">No live orders yet</td></tr></tbody></table></div></article>
+
+<article class="wide"><h2>Needs attention</h2><ul id="issues" class="warn"><li>Loading...</li></ul>
+<details><summary>Legacy checks (not used by the live worker)</summary><ul id="legacy"></ul></details></article>
+
+<article class="wide"><h2>Paper account (simulated)</h2><div class="grid" style="margin-top:0">
+<div><div class="sub">Status</div><div class="big" id="paper-state">—</div></div>
+<div><div class="sub">Cash ₹</div><div class="big" id="paper-cash">—</div></div>
+<div><div class="sub">Closed trades</div><div class="big" id="paper-closed">—</div></div>
+<div><div class="sub">Realized P&amp;L ₹</div><div class="big" id="paper-pnl">—</div></div></div>
+<p class="sub" id="paper-position">—</p></article>
+
+<div class="row"><span class="sub" id="updated">—</span><button id="refresh" type="button">Refresh now</button></div>
+<p class="sub">No buy/sell, key entry, or cancel controls exist here. Auto-refreshes every 30 seconds.</p>
 </main>
 <script>
-const ids=["broker","positions","orders","cash","readiness","issues","observed","journal"];
-function set(id,value){document.getElementById(id).textContent=String(value)}
+const $=id=>document.getElementById(id);
+function set(id,v){$(id).textContent=String(v)}
+function pill(id,t,c){const n=$(id);n.textContent=t;n.className="pill "+c}
+const FRIENDLY={HOLD:"Holding an open position",WAIT_NO_ENTRY_SIGNAL:"Waiting for an RSI entry signal",
+WAIT_EXITED_THIS_SIGNAL_DAY:"Exited today; waiting for the next signal day",NO_ELIGIBLE_CALL:"Signal active, but no eligible call option",
+ORDER_SUBMITTED:"Order sent to Delta",ORDER_NOT_CONFIRMED:"Order outcome unconfirmed; reconciling",
+PENDING_ORDER_WAIT:"Waiting for an order to settle",ALREADY_ATTEMPTED:"Order for this signal already attempted",
+ENTRY_BLOCKED_ACCOUNT_NOT_CLEAR:"Entry blocked: account is not clear",ENTRIES_PAUSED_BY_OPERATOR_FILE:"New entries paused (STOP_ENTRIES file)",
+EXIT_DUE_QUOTE_UNAVAILABLE:"Exit is due but no usable quote yet",STOP_ERROR_NO_ACTION:"Error: no action taken",
+RECOVERY_REQUIRED_RECONCILE_FAILED:"STOPPED: an order needs a manual check",LIVE_STANDBY_NOT_ENABLED:"Standby: live interlock is OFF",
+TRADING_CREDENTIALS_MISSING:"Standby: trading keys missing"};
+const LEGACY=["LIFECYCLE_JOURNAL_UNAVAILABLE","EXIT_JOURNAL_UNAVAILABLE","PRODUCT_NOT_BOUND","AUTONOMOUS_ENTRY_EXIT_CONTROLLER_NOT_RELEASED"];
+const NOTES={BROKER_CREDENTIALS_MISSING:"Dashboard has no read-only key (optional). Add DELTA_INDIA_API_KEY to see account numbers here.",
+INDEPENDENT_LIVE_SAFETY_AUDIT_PENDING:"No independent safety audit yet. Start small and watch the first trades.",
+INSUFFICIENT_AVAILABLE_BALANCE:"Wallet is not funded yet."};
+function age(iso){const t=Date.parse(iso);return t?Math.max(0,Math.round((Date.now()-t)/1000)):null}
+function fmt(s){return s<90?s+"s ago":s<5400?Math.round(s/60)+"m ago":Math.round(s/3600)+"h ago"}
+function renderLive(live){
+ const ev=live.event||live.status||"NO_LIVE_HEARTBEAT",a=live.at?age(live.at):null;
+ set("live-state",FRIENDLY[ev]||ev.replaceAll("_"," "));
+ const bits=[];if(a!==null)bits.push("updated "+fmt(a));
+ for(const k of["reason","symbol","side","journal_stage","error_type","detail"])if(live[k])bits.push(live[k]);
+ set("live-detail",bits.join(" · ")||"The live worker has not reported yet.");
+ let mode,mc,hc="grey";
+ if(ev==="NO_LIVE_HEARTBEAT"||a===null){mode="WORKER NOT RUNNING";mc="grey"}
+ else if(ev==="LIVE_STANDBY_NOT_ENABLED"||ev==="TRADING_CREDENTIALS_MISSING"){mode="LIVE OFF · STANDBY";mc="amber"}
+ else if(a>180){mode="WORKER STALE";mc="red"}
+ else if(/^(STOP_|RECOVERY_)/.test(ev)){mode="LIVE · NEEDS ATTENTION";mc="red"}
+ else{mode="LIVE ARMED";mc="green"}
+ pill("pill-mode",mode,mc);
+ if(a===null)pill("pill-beat","NO HEARTBEAT","grey");else pill("pill-beat","HEARTBEAT "+fmt(a).toUpperCase(),a>180?"red":"green");
+ $("hero").className="hero "+(mc==="grey"?"":mc);
+}
+function renderOrders(rows){
+ const body=$("orders-body");body.replaceChildren();
+ if(!rows||!rows.length){const tr=document.createElement("tr"),td=document.createElement("td");
+  td.colSpan=6;td.className="muted";td.textContent="No live orders yet";tr.append(td);body.append(tr);return}
+ for(const r of rows){const tr=document.createElement("tr");
+  const state=r.resolved?"settled":"awaiting reconcile";
+  const cells=[(r.created_at||"").replace("T"," ").slice(0,19),r.side,r.underlying,r.product_id,
+   r.filled===null||r.filled===undefined?"—":r.filled,state];
+  cells.forEach((v,i)=>{const td=document.createElement("td");td.textContent=String(v);
+   if(i===1)td.className=r.side==="buy"?"buy":"sell";tr.append(td)});
+  body.append(tr)}
+}
+function renderIssues(blockers){
+ const a=$("issues"),l=$("legacy");a.replaceChildren();l.replaceChildren();
+ const attention=(blockers||[]).filter(b=>!LEGACY.includes(b));
+ if(!attention.length){const li=document.createElement("li");li.textContent="Nothing needs attention.";a.append(li)}
+ for(const b of attention){const li=document.createElement("li");li.textContent=NOTES[b]||b;a.append(li)}
+ for(const b of(blockers||[]).filter(b=>LEGACY.includes(b))){const li=document.createElement("li");li.textContent=b;l.append(li)}
+}
 async function load(){
  try{
   const response=await fetch("/api/status",{cache:"no-store"});
   if(!response.ok)throw Error("Unavailable");
-  const data=await response.json();
-  set("broker",data.broker_healthy?"Connected":data.broker_status);
-  set("positions",data.open_positions===null?"Unknown":data.open_positions);
-  set("orders",data.active_orders===null?"Unknown":data.active_orders);
-  set("cash",data.available_usd===null?"Not verified":data.available_usd);
-  set("readiness","READ-ONLY VIEW — this page cannot place orders");
-  set("observed",data.observed_at_utc);
-  set("journal",data.journals_note);
-  const paper=data.paper||{};
-  set("paper-state",paper.status||"UNAVAILABLE");
-  set("paper-cash",paper.cash_inr??"—");
-  set("paper-closed",paper.closed_trades??"—");
-  set("paper-pnl",paper.realized_pnl_inr??"—");
-  set("paper-position",paper.position?"Paper position: "+paper.position.underlying+" "+paper.position.symbol+" × "+paper.position.quantity:"Paper position: flat");
-  set("paper-event","Last paper observation: "+(paper.observed_at_utc||"none")+" / "+(paper.last_event||"none"));
-  const live=data.live||{};
-  set("live-state",live.event||live.status||"NO_LIVE_HEARTBEAT");
-  set("live-detail",(live.at||"")+(live.reason?" / "+live.reason:"")+(live.symbol?" / "+live.symbol:"")+(live.error_type?" / "+live.error_type:"")+(live.detail?" / "+live.detail:""));
-  const warnings=document.getElementById("issues");
-  warnings.replaceChildren();
-  for(const issue of data.blockers){const li=document.createElement("li");li.textContent=issue;warnings.append(li)}
- }catch(_err){
-  set("broker","Unavailable");set("positions","Unknown");set("orders","Unknown");
-  set("cash","Not verified");set("readiness","BLOCKED");set("observed","Status unavailable");
-  const node=document.getElementById("issues");
-  node.replaceChildren();const li=document.createElement("li");
-  li.textContent="Dashboard status request failed; account state is unknown.";node.append(li);
+  const d=await response.json();
+  renderLive(d.live||{});renderOrders(d.live_orders||[]);renderIssues(d.blockers);
+  set("positions",d.open_positions===null?"Unknown":d.open_positions);
+  set("orders",d.active_orders===null?"Unknown":d.active_orders);
+  set("cash",d.available_usd===null?"Not verified":d.available_usd);
+  set("broker",d.broker_healthy?"Connected":d.broker_status);
+  const p=d.paper||{};
+  set("paper-state",p.status||"UNAVAILABLE");set("paper-cash",p.cash_inr??"—");
+  set("paper-closed",p.closed_trades??"—");set("paper-pnl",p.realized_pnl_inr??"—");
+  set("paper-position",p.position?"Paper position: "+p.position.underlying+" "+p.position.symbol+" × "+p.position.quantity:"Paper position: flat");
+  set("updated","Updated "+new Date().toLocaleTimeString());
+ }catch(_e){
+  pill("pill-mode","DASHBOARD ERROR","red");set("live-state","Status unavailable");
+  set("live-detail","The dashboard could not load status; account state is unknown.");
  }
 }
-document.getElementById("refresh").addEventListener("click",load);
-load();setInterval(load,30000);
+$("refresh").addEventListener("click",load);load();setInterval(load,30000);
 </script></body></html>"""
 
 
@@ -121,6 +169,22 @@ def _product_id() -> int | None:
     return int(value)
 
 
+def _read_live_orders(path: str, limit: int = 10) -> list[dict]:
+    """Newest live order attempts, read-only. Any problem yields an empty list."""
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=3)
+        try:
+            rows = con.execute(
+                "SELECT side,underlying,product_id,day,created_at,resolved,filled "
+                "FROM attempts ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        return []
+    keys = ("side", "underlying", "product_id", "day", "created_at", "resolved", "filled")
+    return [dict(zip(keys, r, strict=True)) for r in rows]
+
+
 def _read_live_heartbeat(path: str) -> dict:
     """Last live-worker result written by the worker; read-only, size-capped, never trusted."""
     try:
@@ -131,7 +195,8 @@ def _read_live_heartbeat(path: str) -> dict:
         return {"status": "NO_LIVE_HEARTBEAT"}
     except Exception:  # noqa: BLE001
         return {"status": "LIVE_HEARTBEAT_UNREADABLE"}
-    keep = ("event", "at", "reason", "symbol", "side", "error_type", "detail", "underlying")
+    keep = ("event", "at", "reason", "symbol", "side", "error_type", "detail",
+            "underlying", "journal_stage")
     return {k: str(obj[k])[:200] for k in keep if isinstance(obj, dict) and k in obj}
 
 
@@ -184,6 +249,8 @@ def collect_status(client: DeltaClient | None = None) -> dict:
         paper = {"mode": "PAPER", "status": "REPORT_ERROR", "real_orders_sent": 0}
     return {
         "paper": paper,
+        "live_orders": _read_live_orders(
+            os.getenv("OPTOPSY_LIVE_ATTEMPTS", "data/live-attempts.sqlite")),
         "live": _read_live_heartbeat(
             os.getenv("OPTOPSY_LIVE_HEARTBEAT", "data/live-heartbeat.json")),
         "mode": "READ_ONLY_DASHBOARD",
