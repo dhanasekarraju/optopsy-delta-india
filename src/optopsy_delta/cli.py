@@ -24,6 +24,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--snapshot", required=True)
     cmds.add_parser("private-status", help="Read wallets, position count and open-order count; no writes")
     cmds.add_parser("account-preflight", help="Private read-only balance and exposure diagnostic")
+    cmds.add_parser("rehearse-exits", help="Fully offline exit lifecycle rehearsal; no keys/orders")
     return parser
 
 
@@ -56,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
         from .contract_selection import screen_snapshot_file
 
         print(json.dumps(screen_snapshot_file(args.snapshot), indent=2))
+        return 0
+    if args.command == "rehearse-exits":
+        from .offline_rehearsal import run_rehearsal
+
+        print(json.dumps(run_rehearsal(), indent=2))
         return 0
     if args.command == "account-preflight":
         from .account_preflight import account_preflight
