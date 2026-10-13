@@ -25,6 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     cmds.add_parser("private-status", help="Read wallets, position count and open-order count; no writes")
     cmds.add_parser("account-preflight", help="Private read-only balance and exposure diagnostic")
     cmds.add_parser("rehearse-exits", help="Fully offline exit lifecycle rehearsal; no keys/orders")
+    cmds.add_parser("safety-status", help="One-shot read-only Delta safety status; no trades")
     return parser
 
 
@@ -57,6 +58,12 @@ def main(argv: list[str] | None = None) -> int:
         from .contract_selection import screen_snapshot_file
 
         print(json.dumps(screen_snapshot_file(args.snapshot), indent=2))
+        return 0
+    if args.command == "safety-status":
+        from .safety_watchdog import read_only_watchdog_check
+
+        report = read_only_watchdog_check(client=DeltaClient())
+        print(json.dumps(report, indent=2))
         return 0
     if args.command == "rehearse-exits":
         from .offline_rehearsal import run_rehearsal
