@@ -184,6 +184,15 @@ class DeltaClient:
             cursor = next_cursor
         raise DeltaError("Incomplete active order history: pagination safety limit")
 
+    def order_by_id(self, order_id: int) -> dict:
+        """Signed single-order lookup, no submission or cancellation."""
+        if type(order_id) is not int or order_id <= 0:
+            raise ValueError("Invalid broker order ID")
+        result = self._get("/v2/orders/" + str(order_id), signed=True)
+        if not isinstance(result, dict) or result.get("id") != order_id:
+            raise DeltaError("Mismatched single-order response")
+        return result
+
     def product_position(self, product_id: int) -> dict:
         """Get current per-product position; general margined list may lag."""
         if type(product_id) is not int or product_id <= 0:
