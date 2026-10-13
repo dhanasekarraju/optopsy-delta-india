@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 
 from .client import DeltaClient, DeltaError
+from .exit_recovery import ExitAttemptJournal
 from .live_gateway import LiveIntentJournal
 from .position_lifecycle import LifecycleError, LifecycleJournal
 
@@ -15,6 +16,7 @@ from .position_lifecycle import LifecycleError, LifecycleJournal
 def reconcile_broker(
     *, client: DeltaClient, intent_journal: LiveIntentJournal,
     lifecycle: LifecycleJournal, now_us: int | None = None,
+    exit_attempts: ExitAttemptJournal | None = None,
 ) -> dict:
     """Reconcile exact broker order IDs and complete product fill history.
 
@@ -54,6 +56,43 @@ def reconcile_broker(
             "size": order.get("size"),
         })
         broker_orders.append(order)
+
+    if exit_attempts is not None:
+        # A settled, independently verified reduce-only exit is a REGISTERED
+        # historical order, not a manual trade. Pending/unknown exits still
+        # block reconciliation and any subsequent exit draft.
+        for attempt in exit_attempts.status()["attempts"]:
+            if attempt.get("state") != "TERMINAL_VERIFIED":
+                raise LifecycleError("Unresolved exit attempt blocks position reconciliation")
+            oid = attempt.get("broker_id")
+            client_id = attempt.get("client_id")
+            if (attempt.get("product_id") != product
+                    or not isinstance(oid, str) or not oid.isdecimal()
+                    or not isinstance(client_id, str) or not client_id.startswith("os-")):
+                raise LifecycleError("Invalid verified exit identity")
+            order = client.order_by_id(int(oid))
+            if (order.get("id") != int(oid)
+                    or order.get("client_order_id") != client_id
+                    or order.get("product_id") != product
+                    or order.get("side") != "sell"
+                    or order.get("reduce_only") is not True
+                    or order.get("state") not in ("closed", "cancelled")
+                    or attempt.get("requested_qty") != order.get("size")
+                    or type(order.get("unfilled_size")) is not int
+                    or order["unfilled_size"] < 0
+                    or order["unfilled_size"] > order["size"]
+                    or attempt.get("filled_qty") != (
+                        order["size"] - order["unfilled_size"]
+                    )):
+                raise LifecycleError("Historical exit differs from independently verified broker order")
+            registered.append({
+                "broker_order_id": int(oid),
+                "client_order_id": client_id,
+                "product_id": product,
+                "side": "sell",
+                "size": order["size"],
+            })
+            broker_orders.append(order)
 
     all_positions = client.open_positions()
     if not isinstance(all_positions, list):
