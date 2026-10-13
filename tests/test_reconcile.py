@@ -58,12 +58,22 @@ def test_authenticated_fill_pagination_exact_query_and_product():
 
 def test_fills_fail_closed_on_duplicate_cursor_and_truncation():
     page = {"success": True, "result": [FILL_1], "meta": {"after": "next"}}
-    a = DeltaClient(api_key="k", api_secret="s", session=Session([page, page]))
+    next_page = {
+        "success": True,
+        "result": [{**FILL_1, "id": "fill-2"}],
+        "meta": {"after": "next"},
+    }
+    a = DeltaClient(api_key="k", api_secret="s", session=Session([page, next_page]))
     with pytest.raises(DeltaError, match="Repeated"):
         a.fills_for_product(44, start_time_us=1, end_time_us=2)
     b = DeltaClient(api_key="k", api_secret="s", session=Session([page]))
     with pytest.raises(DeltaError, match="Incomplete"):
         b.fills_for_product(44, start_time_us=1, end_time_us=2, max_pages=1)
+
+    duplicate_page = {"success": True, "result": [FILL_1], "meta": {"after": "new"}}
+    c = DeltaClient(api_key="k", api_secret="s", session=Session([page, duplicate_page]))
+    with pytest.raises(DeltaError, match="duplicate fill"):
+        c.fills_for_product(44, start_time_us=1, end_time_us=2)
 
 
 def test_fills_reject_wrong_product_duplicate_or_missing_meta():
