@@ -9,7 +9,7 @@ import json
 import os
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Callable
+from collections.abc import Callable
 
 from .account_preflight import inspect_account
 from .client import DeltaClient, SignatureError
@@ -183,7 +183,7 @@ def make_handler(provider: Callable[[], dict] = collect_status):
             self.end_headers()
             self.wfile.write(content)
 
-        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler hook
+        def do_GET(self):
             host = self.headers.get("Host", "").split(":", 1)[0].lower()
             if host not in ("127.0.0.1", "localhost"):
                 self._send(403, b"Forbidden", "text/plain; charset=utf-8")
@@ -220,7 +220,7 @@ def make_handler(provider: Callable[[], dict] = collect_status):
             else:
                 self._send(404, b"Not found", "text/plain; charset=utf-8")
 
-        def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler hook
+        def do_POST(self):
             self._send(405, b"Orders are not supported",
                        "text/plain; charset=utf-8")
 
