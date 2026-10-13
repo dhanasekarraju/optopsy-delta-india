@@ -18,8 +18,8 @@ from pathlib import Path
 
 from .client import DeltaClient
 from .contract_selection import screen_long_calls
-from .original_signals import closed_candles, evaluate_original_rsi
 from .mode import require_paper
+from .original_signals import closed_candles, evaluate_original_rsi
 
 START_INR = Decimal(5000)
 RESERVE_INR = Decimal(500)
