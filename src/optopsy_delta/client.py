@@ -184,6 +184,17 @@ class DeltaClient:
             cursor = next_cursor
         raise DeltaError("Incomplete active order history: pagination safety limit")
 
+    def order_by_client_id(self, client_id: str) -> dict:
+        """Signed, read-only lookup of a previously registered exit order."""
+        import re
+
+        if not isinstance(client_id, str) or re.fullmatch(r"os-[0-9a-f]{28}", client_id) is None:
+            raise ValueError("Invalid bot exit client order ID")
+        result = self._get("/v2/orders/client_order_id/" + client_id, signed=True)
+        if not isinstance(result, dict) or result.get("client_order_id") != client_id:
+            raise DeltaError("Mismatched client order lookup response")
+        return result
+
     def order_by_id(self, order_id: int) -> dict:
         """Signed single-order lookup, no submission or cancellation."""
         if type(order_id) is not int or order_id <= 0:
