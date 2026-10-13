@@ -6,9 +6,9 @@ placement here would misleadingly imply that an unattended bot is safe to run.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
-import contextlib
 import os
 import re
 import time
