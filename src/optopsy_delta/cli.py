@@ -23,6 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     p = cmds.add_parser("screen-calls", help="Read-only original Optopsy call candidates from snapshot")
     p.add_argument("--snapshot", required=True)
     cmds.add_parser("private-status", help="Read wallets, position count and open-order count; no writes")
+    cmds.add_parser("account-preflight", help="Private read-only balance and exposure diagnostic")
     return parser
 
 
@@ -55,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
         from .contract_selection import screen_snapshot_file
 
         print(json.dumps(screen_snapshot_file(args.snapshot), indent=2))
+        return 0
+    if args.command == "account-preflight":
+        from .account_preflight import account_preflight
+
+        print(json.dumps(account_preflight(DeltaClient()), indent=2))
         return 0
     if args.command == "private-status":
         client = DeltaClient()
