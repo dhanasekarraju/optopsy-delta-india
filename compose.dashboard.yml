@@ -1,0 +1,31 @@
+# Explicitly separate from all other trading bot stacks.
+# NEVER publish this service on 0.0.0.0 or expose account data publicly.
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.readonly
+    image: optopsy-delta-india:readonly
+    container_name: optopsy_delta_dashboard
+    restart: unless-stopped
+    user: "${OPTOPSY_UID:-1000}:${OPTOPSY_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 768m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=32m
+    ports:
+      - "127.0.0.1:8097:8097"
+    environment:
+      DELTA_INDIA_API_KEY: "${DELTA_INDIA_API_KEY:-}"
+      DELTA_INDIA_API_SECRET: "${DELTA_INDIA_API_SECRET:-}"
+      OPTOPSY_DASHBOARD_PRODUCT_ID: "${OPTOPSY_DASHBOARD_PRODUCT_ID:-}"
+      OPTOPSY_LIFECYCLE_DB: "${OPTOPSY_LIFECYCLE_DB:-}"
+      OPTOPSY_EXIT_DB: "${OPTOPSY_EXIT_DB:-}"
+      OPTOPSY_LIVE_ENABLED: "NO"
+    command: ["python", "-m", "optopsy_delta.dashboard"]
+    entrypoint: []
+    volumes:
+      - ./data:/opt/optopsy-delta/data:ro
