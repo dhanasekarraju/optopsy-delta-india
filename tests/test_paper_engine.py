@@ -11,8 +11,8 @@ T = datetime(2026, 10, 13, 8, 0, tzinfo=UTC)
 
 
 def offer(signal="a", **overrides):
-    args = dict(signal=signal, strategy="long_calls", underlying="BTC", product_id=123,
-                size=1, ask="20", contract="0.01", quoted_at=T, now=T)
+    args = {"signal": signal, "strategy": "long_calls", "underlying": "BTC", "product_id": 123,
+            "size": 1, "ask": "20", "contract": "0.01", "quoted_at": T, "now": T}
     return args | overrides
 
 
@@ -27,9 +27,8 @@ def test_open_close_restart_and_append_only(tmp_path):
                   quoted_at=T, now=T)["state"] == "PAPER_EXITED"
     assert p.status()["open_positions"] == []
     assert p.status()["events"] == 2
-    with sqlite3.connect(path) as con:
-        with pytest.raises(sqlite3.IntegrityError):
-            con.execute("DELETE FROM events")
+    with sqlite3.connect(path) as con, pytest.raises(sqlite3.IntegrityError):
+        con.execute("DELETE FROM events")
 
 
 def test_entry_and_exit_retry_no_double_mutation(tmp_path):

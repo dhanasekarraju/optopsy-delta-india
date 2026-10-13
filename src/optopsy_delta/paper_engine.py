@@ -111,9 +111,9 @@ class PaperLedger:
         if type(size) is not int or size <= 0:
             raise PaperError("Invalid size")
         px, cv = _amount(ask, "ask"), _amount(contract, "contract")
-        fingerprint = _hash(dict(signal=signal, strategy=strategy, underlying=underlying,
-            product_id=product_id, size=size, ask=str(px), contract=str(cv),
-            quote=_instant(quoted_at)))
+        fingerprint = _hash({"signal": signal, "strategy": strategy, "underlying": underlying,
+            "product_id": product_id, "size": size, "ask": str(px), "contract": str(cv),
+            "quote": _instant(quoted_at)})
         db = self._db()
         try:
             db.execute("BEGIN IMMEDIATE")
@@ -154,8 +154,8 @@ class PaperLedger:
         if type(size) is not int or size <= 0:
             raise PaperError("Invalid exit size")
         px = _amount(bid, "bid", zero_ok=True)
-        fingerprint = _hash(dict(exit_id=exit_id, signal=signal, size=size,
-                                 bid=str(px), quote=_instant(quoted_at)))
+        fingerprint = _hash({"exit_id": exit_id, "signal": signal, "size": size,
+                                 "bid": str(px), "quote": _instant(quoted_at)})
         db = self._db()
         try:
             db.execute("BEGIN IMMEDIATE")
