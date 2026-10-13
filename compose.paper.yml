@@ -1,0 +1,22 @@
+# Isolated paper-only continuous Optopsy worker. No trading keys or POST endpoints.
+services:
+  paper:
+    build:
+      context: .
+      dockerfile: Dockerfile.paper
+    image: optopsy-delta-india:paper
+    container_name: optopsy_delta_paper
+    restart: unless-stopped
+    user: "${OPTOPSY_UID:-1000}:${OPTOPSY_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 1024m
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    environment:
+      OPTOPSY_LIVE_ENABLED: "NO"
+    volumes:
+      - ./data:/opt/optopsy-delta/data:rw
+    command: ["python", "-m", "optopsy_delta.paper_worker", "--interval", "60"]
