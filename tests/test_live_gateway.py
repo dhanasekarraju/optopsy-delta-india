@@ -208,3 +208,20 @@ def test_direct_post_remains_off_after_kill_switch(monkeypatch):
     client = DeltaTradingTransport(api_key="fake", api_secret="fake", live_enabled=True)
     with pytest.raises(LiveGatewayError, match="disabled"):
         client.submit(intent())
+
+
+def test_fee_buffer_exceeds_current_delta_cap_plus_gst():
+    from decimal import Decimal
+
+    from optopsy_delta.live_gateway import BUFFER
+
+    # Delta India: option commission max 3.5% premium, GST 18%.
+    assert BUFFER >= Decimal("0.035") * Decimal("1.18")
+    # A 3% reserve would approve this order, but a 5% reserve must reject it.
+    expensive = intent(limit_price="4360", contract_value="1", usd_inr="1")
+    with pytest.raises(LiveRejected, match="funds"):
+        validate(
+            expensive, **check(cash_inr="5000", tick_size="1",
+                               observed_bid="4359", observed_ask="4360",
+                               observed_depth="1")
+        )

@@ -30,7 +30,9 @@ class CapitalPolicy:
     budget_inr: Decimal = Decimal(5000)
     usd_inr: Decimal = Decimal(85)
     reserve_inr: Decimal = Decimal(500)
-    max_premium_fee_buffer: Decimal = Decimal("0.03")
+    # 5% covers Delta India's currently published max 4.13% capped entry fee
+    # (3.5% premium cap + 18% GST), with a small rounding allowance.
+    max_premium_fee_buffer: Decimal = Decimal("0.05")
 
     def __post_init__(self) -> None:
         if not (Decimal(0) < self.budget_inr <= Decimal(5000)):

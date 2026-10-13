@@ -183,3 +183,15 @@ def test_underlying_candidate_uses_contract_unit_currency_when_other_is_usd():
     p['underlying_asset']={'symbol':'USD'}
     p['contract_unit_currency']='BTC'
     assert snapshot_to_rows([TICKER],[p],captured_at=t)[0]['underlying_symbol']=='BTC'
+
+
+def test_default_budget_fee_reserve_covers_premium_cap_and_gst():
+    p = CapitalPolicy()
+    assert p.max_premium_fee_buffer >= Decimal("0.035") * Decimal("1.18")
+    # Premium INR 4,335; it passes a 3% reserve but exceeds our INR 4,500
+    # deployable cash after a conservative 5% reserve.
+    with pytest.raises(CapitalPolicyError, match="exceeds"):
+        p.estimate_long_option(
+            limit_price_usd="51", contract_value="1", size=1,
+            available_usd="100",
+        )

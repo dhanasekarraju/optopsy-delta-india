@@ -23,7 +23,9 @@ HOST = "https://api.india.delta.exchange"
 ORDER_PATH = "/v2/orders"
 MAX_INR = Decimal(5000)
 RESERVE_INR = Decimal(500)
-BUFFER = Decimal("0.03")
+# Cap-only option commission can be 3.5% of premium + 18% GST = 4.13%.
+# Round this preflight reserve up to 5%; never substitute it for broker fees.
+BUFFER = Decimal("0.05")
 TIMEOUT = (3.05, 8)
 _ALLOWED_ID = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
 
