@@ -14,8 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .account_preflight import inspect_account
 from .client import DeltaClient, SignatureError
 from .existing_journals import existing_exit_status, existing_lifecycle_status
-from .safety_watchdog import observe_safety
 from .paper_reporting import read_paper_status
+from .safety_watchdog import observe_safety
 
 HOST = "0.0.0.0"  # Container-only; compose publishes to host LOOPBACK.
 PORT = 8097
