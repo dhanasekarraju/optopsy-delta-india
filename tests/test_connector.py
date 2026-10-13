@@ -63,15 +63,15 @@ def test_public_underlying_validation():
 
 
 def test_private_auth_signatures_include_exact_query():
-    s = FakeSession({'success': True, 'result': []})
+    s = FakeSession({'success': True, 'result': [], 'meta': {'after': None}})
     c = DeltaClient(api_key='safekey', api_secret='safesecret', session=s)
     with patch('optopsy_delta.client.time.time', return_value=1542110948):
         assert c.active_orders() == []
     url, kwargs = s.calls[0]
-    assert url.endswith('/v2/orders?states=open%2Cpending')
+    assert url.endswith('/v2/orders?page_size=50&states=open%2Cpending')
     headers = kwargs['headers']
     assert headers['signature'] == sign_message('safesecret','GET','1542110948',
-                                              '/v2/orders','?states=open%2Cpending')
+                                              '/v2/orders','?page_size=50&states=open%2Cpending')
     assert headers['api-key'] == 'safekey'
     assert kwargs['timeout'][1] < 15
 

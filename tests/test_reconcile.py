@@ -51,6 +51,7 @@ def test_authenticated_fill_pagination_exact_query_and_product():
     assert params["product_ids"] == ["44"]
     assert params["start_time"] == ["1000000"]
     assert params["end_time"] == ["2000000"]
+    assert params["page_size"] == ["50"]
     assert "signature" in first_kwargs["headers"]
     assert "readsecret" not in repr(http.calls)
     assert parse_qs(urlparse(http.calls[1][0]).query)["after"] == ["next"]

@@ -151,11 +151,38 @@ class DeltaClient:
     def open_positions(self) -> Any:
         return self._get("/v2/positions/margined", signed=True)
 
-    def active_orders(self) -> list[dict]:
-        result = self._get("/v2/orders", params={"states": "open,pending"}, signed=True)
-        if not isinstance(result, list):
-            raise DeltaError("Unexpected order response")
-        return result
+    def active_orders(self, *, max_pages: int = 40) -> list[dict]:
+        """Follow every private active-order page; reject truncation."""
+        if type(max_pages) is not int or not 1 <= max_pages <= 100:
+            raise ValueError("Invalid active-order pagination limit")
+        all_orders: list[dict] = []
+        seen_ids: set[str] = set()
+        seen_cursors: set[str] = set()
+        cursor: str | None = None
+        for _ in range(max_pages):
+            params = {"states": "open,pending", "page_size": "50"}
+            if cursor is not None:
+                params["after"] = cursor
+            envelope = self._get("/v2/orders", params=params, signed=True, envelope=True)
+            page, meta = envelope["result"], envelope.get("meta")
+            if not isinstance(page, list) or not isinstance(meta, dict):
+                raise DeltaError("Unverifiable active-order pagination response")
+            for row in page:
+                if not isinstance(row, dict) or type(row.get("id")) is not int:
+                    raise DeltaError("Invalid active-order record")
+                ident = str(row["id"])
+                if ident in seen_ids or row.get("state") not in ("open", "pending"):
+                    raise DeltaError("Duplicate or unknown active-order record")
+                seen_ids.add(ident)
+                all_orders.append(row)
+            next_cursor = meta.get("after")
+            if next_cursor is None or next_cursor == "":
+                return all_orders
+            if not isinstance(next_cursor, str) or next_cursor in seen_cursors:
+                raise DeltaError("Repeated or invalid active-order cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        raise DeltaError("Incomplete active order history: pagination safety limit")
 
     def product_position(self, product_id: int) -> dict:
         """Get current per-product position; general margined list may lag."""
@@ -189,7 +216,7 @@ class DeltaClient:
         for _ in range(max_pages):
             params = {
                 "product_ids": str(product_id), "start_time": str(start_time_us),
-                "end_time": str(end_time_us), "page_size": "100",
+                "end_time": str(end_time_us), "page_size": "50",
             }
             if after is not None:
                 params["after"] = after
