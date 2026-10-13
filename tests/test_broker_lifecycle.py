@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from optopsy_delta.broker_lifecycle import reconcile_broker
+from optopsy_delta.exit_recovery import ExitAttemptJournal
 from optopsy_delta.live_gateway import LiveIntentJournal, OrderIntent
 from optopsy_delta.position_lifecycle import LifecycleError, LifecycleJournal
 
@@ -140,3 +141,72 @@ def test_invalid_broker_position_identity_refused(tmp_path):
     with pytest.raises(LifecycleError, match="identity mismatch"):
         reconcile_broker(client=client, intent_journal=journal,
                          lifecycle=lifecycle, now_us=200)
+
+
+def test_verified_partial_exit_is_registered_in_next_lifecycle_snapshot(tmp_path):
+    lifecycle, journal = build(tmp_path)
+    entry_id = journal.reserve(intent())
+    journal.note(entry_id, "ACKNOWLEDGED", order_id="555")
+    exits = ExitAttemptJournal(tmp_path / "exits.sqlite")
+    cid = exits.prepare({
+        "status": "DRAFT_EXIT_ONLY", "submit_authorized": False,
+        "side": "sell", "reduce_only": True,
+        "order_type": "limit_order", "time_in_force": "ioc",
+        "product_id": 44, "remaining_contracts": 2, "draft_size": 2,
+        "available_bid_depth": 2, "quote_observed_unix": 1000,
+        "limit_price": "20", "reason": "PRE_EXPIRY_SAFETY_CUTOFF",
+    })["client_order_id"]
+    sold = {
+        "id": 666, "client_order_id": cid, "product_id": 44,
+        "side": "sell", "reduce_only": True,
+        "size": 2, "unfilled_size": 1, "state": "cancelled",
+    }
+    exits.reconcile_terminal(
+        client_order_id=cid, order=sold,
+        fills=[{"id": "sell1", "order_id": 666, "product_id": 44,
+                "side": "sell", "size": 1}],
+        position={"product_id": 44, "size": 1},
+        all_active_orders=[], history_complete=True,
+    )
+    entry_order = {
+        "id": 555, "client_order_id": entry_id, "product_id": 44,
+        "side": "buy", "size": 2, "unfilled_size": 0, "state": "closed",
+    }
+    client = broker()
+    client.order_by_id.side_effect = lambda oid: entry_order if oid == 555 else sold
+    client.open_positions.return_value = [{"product_id": 44, "size": 1}]
+    client.product_position.return_value = {"size": 1}
+    client.fills_for_product.return_value = [
+        {"id": "buy1", "order_id": 555, "product_id": 44,
+         "side": "buy", "size": 2},
+        {"id": "sell1", "order_id": 666, "product_id": 44,
+         "side": "sell", "size": 1},
+    ]
+    report = reconcile_broker(
+        client=client, intent_journal=journal, lifecycle=lifecycle,
+        exit_attempts=exits, now_us=200,
+    )
+    assert report["registered_bought"] == 2
+    assert report["registered_sold"] == 1
+    assert report["reported_position_size"] == 1
+    assert report["live_order_authorized"] is False
+
+
+def test_unknown_exit_attempt_blocks_position_reconciliation(tmp_path):
+    lifecycle, journal = build(tmp_path)
+    exits = ExitAttemptJournal(tmp_path / "exits.sqlite")
+    exits.prepare({
+        "status": "DRAFT_EXIT_ONLY", "submit_authorized": False,
+        "side": "sell", "reduce_only": True,
+        "order_type": "limit_order", "time_in_force": "ioc",
+        "product_id": 44, "remaining_contracts": 2, "draft_size": 2,
+        "available_bid_depth": 2, "quote_observed_unix": 1000,
+        "limit_price": "20", "reason": "PRE_EXPIRY_SAFETY_CUTOFF",
+    })
+    client = broker()
+    with pytest.raises(LifecycleError, match="Unresolved exit"):
+        reconcile_broker(
+            client=client, intent_journal=journal, lifecycle=lifecycle,
+            exit_attempts=exits, now_us=200,
+        )
+    client.open_positions.assert_not_called()
