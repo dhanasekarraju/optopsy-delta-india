@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from .capital import reserve_inr
 from .live_gateway import OrderIntent, validate
 
 
@@ -83,7 +84,7 @@ def plan_entry(*, signal: dict, contract: dict, now: datetime,
     try:
         validate(
             intent, now=int(now.timestamp()),
-            cash_inr=available + Decimal(500), tick_size=quote["tick_size"],
+            cash_inr=available + reserve_inr(), tick_size=quote["tick_size"],
             observed_bid=quote["best_bid"], observed_ask=quote["best_ask"],
             observed_depth=quote["best_ask_size"], external_exposure=False,
         )

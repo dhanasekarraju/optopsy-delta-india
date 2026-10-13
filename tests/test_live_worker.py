@@ -212,3 +212,75 @@ def test_standby_when_not_enabled_writes_heartbeat_and_never_trades(tmp_path, mo
     beat = json.loads((tmp_path / "d" / "live-heartbeat.json").read_text())
     assert code == 3 and beat["event"] == "LIVE_STANDBY_NOT_ENABLED"
     assert beat["real_orders_sent"] == 0
+
+
+# ---- capital settings ------------------------------------------------------------------
+def test_capital_defaults_and_validation(monkeypatch):
+    from optopsy_delta.capital import CapitalConfigError, validate_all
+    for name in ("OPTOPSY_CAPITAL_INR", "OPTOPSY_RESERVE_INR", "OPTOPSY_MAX_CONTRACTS"):
+        monkeypatch.delenv(name, raising=False)
+    assert validate_all() == {"capital_inr": "5000", "reserve_inr": "500", "max_contracts": 1}
+    for name, bad in [("OPTOPSY_CAPITAL_INR", "abc"), ("OPTOPSY_CAPITAL_INR", "-5"),
+                      ("OPTOPSY_CAPITAL_INR", "5000000"), ("OPTOPSY_CAPITAL_INR", "400"),
+                      ("OPTOPSY_RESERVE_INR", "6000"), ("OPTOPSY_MAX_CONTRACTS", "0"),
+                      ("OPTOPSY_MAX_CONTRACTS", "2.5"), ("OPTOPSY_MAX_CONTRACTS", "1000")]:
+        monkeypatch.setenv(name, bad)
+        with pytest.raises(CapitalConfigError):
+            validate_all()
+        monkeypatch.delenv(name)
+
+
+def test_adding_capital_alone_never_increases_size(env, monkeypatch):
+    monkeypatch.setenv("OPTOPSY_CAPITAL_INR", "50000")  # MAX_CONTRACTS left at default 1
+    client, transport = FakeClient([product(1)], [ticker(1)]), FakeTransport()
+    cycle(env, client, transport, sig=entry_signal)
+    assert transport.sent[0].size == 1
+
+
+def test_max_contracts_scales_size_but_stops_at_book_depth(env, monkeypatch):
+    monkeypatch.setenv("OPTOPSY_MAX_CONTRACTS", "10")  # ask size in fixture is 5
+    client, transport = FakeClient([product(1)], [ticker(1)]), FakeTransport()
+    cycle(env, client, transport, sig=entry_signal)
+    assert transport.sent[0].size == 5
+
+
+def test_size_is_limited_by_budget(monkeypatch):
+    from decimal import Decimal
+
+    from optopsy_delta.live_worker import entry_size
+    monkeypatch.setenv("OPTOPSY_MAX_CONTRACTS", "50")
+    monkeypatch.setenv("OPTOPSY_CAPITAL_INR", "1000")
+    monkeypatch.setenv("OPTOPSY_RESERVE_INR", "0")
+    # 100 USD * 0.1 * 85 = 850 INR (+5% buffer = 892.5) per contract -> only 1 fits in 1000
+    got = entry_size(ask=Decimal(100), contract_value=Decimal("0.1"), ask_size=Decimal(40),
+                     cash_inr=Decimal(100000))
+    assert got == 1
+    assert entry_size(ask=Decimal(100), contract_value=Decimal("0.1"), ask_size=Decimal(40),
+                      cash_inr=Decimal(500)) == 0  # wallet smaller than one contract
+
+
+def test_invalid_capital_config_idles_in_standby_and_never_trades(tmp_path, monkeypatch):
+    import json
+
+    from optopsy_delta.live_worker import main
+    monkeypatch.setenv("OPTOPSY_LIVE_ENABLED", "YES_REAL_ORDERS")
+    monkeypatch.setenv("DELTA_TRADE_API_KEY", "k")
+    monkeypatch.setenv("DELTA_TRADE_API_SECRET", "s")
+    monkeypatch.setenv("OPTOPSY_CAPITAL_INR", "50000000")  # an extra-zero typo
+    config = tmp_path / "config.toml"
+    config.write_text("paper_enabled = false\n")
+    code = main(["--once", "--data-dir", str(tmp_path / "d"), "--config", str(config)])
+    beat = json.loads((tmp_path / "d" / "live-heartbeat.json").read_text())
+    assert code == 3 and beat["event"] == "CAPITAL_CONFIG_INVALID"
+
+
+def test_gateway_enforces_configured_cap_independently(env, monkeypatch):
+    monkeypatch.setenv("OPTOPSY_CAPITAL_INR", "1000")
+    monkeypatch.setenv("OPTOPSY_RESERVE_INR", "100")
+    monkeypatch.setenv("OPTOPSY_MAX_CONTRACTS", "5")
+    pricey = ticker(1, bid="2000", ask="2001")  # 2001*0.001*85 = 170 INR per contract
+    client, transport = FakeClient([product(1)], [pricey]), FakeTransport()
+    cycle(env, client, transport, sig=entry_signal)
+    order = transport.sent[0]
+    assert order.size * 2001 * 0.001 * 85 * 1.05 <= 900  # never exceeds capital - reserve
+    assert order.size == 5

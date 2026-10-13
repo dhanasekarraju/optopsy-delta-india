@@ -37,3 +37,17 @@ worker (entry `rsi_below(14,30)`, exit `rsi_above(14,70)`, 0.30-delta screen, so
 `constraints-cpu-compat.txt` pins NumPy 2.2.6 (baseline x86, no X86_V2 requirement) and the
 tested pandas. If you see "NumPy was built with baseline optimizations", rebuild with
 `docker compose -f compose.live.yml up -d --build` after pulling this branch.
+
+## Changing capital later
+Edit `.env` (section 5), then recreate BOTH containers so they re-read it:
+
+    docker compose -f compose.live.yml up -d --force-recreate
+    docker compose -f compose.dashboard.yml up -d --force-recreate
+
+- `OPTOPSY_CAPITAL_INR`: budget ceiling (default 5000). Wallet must actually hold the money.
+- `OPTOPSY_RESERVE_INR`: never spent (default 500).
+- `OPTOPSY_MAX_CONTRACTS`: most contracts per entry (default 1). Raising capital alone does NOT
+  buy more; size = min(this, visible ask depth, what the budget affords after a 5% fee buffer).
+- Invalid values put the worker in standby (`CAPITAL_CONFIG_INVALID`); they never default upward.
+- An open position is unaffected: exits always sell what the broker says you hold.
+- The paper worker's simulated account stays at INR 5,000.

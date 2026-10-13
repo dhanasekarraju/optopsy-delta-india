@@ -8,8 +8,8 @@ Safety model (kept from the repository's gateway design):
 * Runs only when BOTH operator interlocks are set (``paper_enabled = false`` in config.toml
   and ``OPTOPSY_LIVE_ENABLED=YES_REAL_ORDERS``). This code never sets either.
 * The BROKER is the source of truth for positions; local state only records our attempts.
-* One long contract at a time, IOC limit orders only, hard INR 5,000 allocation / 500 reserve
-  via ``live_gateway.validate``. Entries need a flat, order-free account.
+* One position at a time, IOC limit orders only. Allocation, reserve and max contracts come from
+  .env (defaults INR 5,000 / 500 / 1) and are enforced again by ``live_gateway.validate``. Entries need a flat, order-free account.
 * Every order is journaled before submission; an order with unknown outcome is never
   resubmitted, and no new order is sent while any attempt is unreconciled.
 * ``data/STOP_ENTRIES`` (an empty file) pauses new entries while exits keep running.
@@ -23,13 +23,15 @@ import sqlite3
 import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from pathlib import Path
 
 from .account_preflight import account_preflight
+from .capital import CapitalConfigError, capital_inr, max_contracts, reserve_inr, validate_all
 from .client import DeltaClient
 from .contract_selection import screen_long_calls
 from .live_gateway import (
+    BUFFER,
     DeltaTradingTransport,
     LiveIntentJournal,
     OrderIntent,
@@ -137,6 +139,16 @@ class AttemptBook:
             return con.execute(
                 "SELECT 1 FROM attempts WHERE side='sell' AND day=? AND filled > 0",
                 (day,)).fetchone() is not None
+
+
+def entry_size(*, ask: Decimal, contract_value: Decimal, ask_size: Decimal, cash_inr: Decimal) -> int:
+    """Contracts to buy: min(configured max, visible ask depth, what the budget affords). 0 = skip."""
+    per_contract = ask * contract_value * FX_INR * (1 + BUFFER)
+    budget = min(capital_inr(), cash_inr) - reserve_inr()
+    if budget <= 0 or per_contract <= 0:
+        return 0
+    affordable = int((budget / per_contract).to_integral_value(rounding=ROUND_FLOOR))
+    return max(0, min(max_contracts(), int(ask_size), affordable))
 
 
 def _verified_signal(signal: object, now: datetime) -> dict:
@@ -331,8 +343,13 @@ def _consider_entry(*, products: list, client: DeltaClient, now: datetime, evalu
         if account["status"] != "PRELIMINARY_CLEAR":
             return {"event": "ENTRY_BLOCKED_ACCOUNT_NOT_CLEAR", "blockers": account["blockers"]}
         cash_inr = _dec(account["available_usd_equivalent"], "wallet", positive=False) * FX_INR
+        size = entry_size(ask=quote["ask"], contract_value=_dec(contract["contract_value"], "unit"),
+                          ask_size=quote["ask_size"], cash_inr=cash_inr)
+        if size < 1:
+            return {"event": "ENTRY_SKIPPED_BUDGET_TOO_SMALL", "underlying": underlying,
+                    "symbol": contract["symbol"], "cash_inr": _fmt(cash_inr)}
         intent = OrderIntent(
-            signal_id=f"rsi-{underlying}-{day}-{pid}", product_id=pid, side="buy", size=1,
+            signal_id=f"rsi-{underlying}-{day}-{pid}", product_id=pid, side="buy", size=size,
             limit_price=_fmt(quote["ask"]), contract_value=str(contract["contract_value"]),
             usd_inr=str(FX_INR), ticker_timestamp=quote["ts"],
         )
@@ -397,9 +414,15 @@ def main(argv: list[str] | None = None) -> int:
         except ModeError as exc:
             standby = {"event": "LIVE_STANDBY_NOT_ENABLED", "detail": str(exc)}
         else:
-            if not key or not secret:
-                standby = {"event": "TRADING_CREDENTIALS_MISSING"}
+            try:
+                limits = validate_all()
+            except CapitalConfigError as exc:
+                standby = {"event": "CAPITAL_CONFIG_INVALID", "detail": str(exc)}
+            else:
+                if not key or not secret:
+                    standby = {"event": "TRADING_CREDENTIALS_MISSING"}
         if standby is None:
+            print(json.dumps({"mode": "LIVE", "event": "LIVE_START", **limits}), flush=True)
             break
         standby.update(mode="LIVE", at=datetime.now(UTC).isoformat(), real_orders_sent=0)
         _heartbeat(data_dir, standby)

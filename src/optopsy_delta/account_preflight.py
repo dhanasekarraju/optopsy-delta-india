@@ -4,6 +4,7 @@ from __future__ import annotations
 from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
+from .capital import capital_inr, reserve_inr
 from .client import DeltaClient
 from .policy import CapitalPolicyError, dec
 
@@ -58,7 +59,7 @@ def inspect_account(wallets: Any, positions: Any, orders: Any) -> dict:
                 blockers.append("UNKNOWN_MARGIN_FIELDS")
             elif number(w[field], field) > 0:
                 blockers.append("EXISTING_MARGIN")
-    cap = max(Decimal(0), min(available * 85, Decimal(5000)) - 500)
+    cap = max(Decimal(0), min(available * 85, capital_inr()) - reserve_inr())
     if cap <= 0:
         blockers.append("INSUFFICIENT_AVAILABLE_BALANCE")
     estimated_max_premium = cap / Decimal("1.05")

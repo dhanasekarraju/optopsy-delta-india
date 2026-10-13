@@ -19,6 +19,8 @@ from pathlib import Path
 
 import requests
 
+from .capital import capital_inr, reserve_inr
+
 HOST = "https://api.india.delta.exchange"
 ORDER_PATH = "/v2/orders"
 MAX_INR = Decimal(5000)
@@ -119,9 +121,10 @@ def validate(intent: OrderIntent, *, now: int, cash_inr: object,
     premium = p * unit * intent.size * fx
     if intent.side == "buy":
         available = _number(cash_inr, positive=False)
-        if (premium * (1 + BUFFER) > MAX_INR - RESERVE_INR
-                or premium * (1 + BUFFER) > available - RESERVE_INR):
-            raise LiveRejected("Insufficient funds or INR 5000 allocation limit")
+        cap, reserve = capital_inr(), reserve_inr()  # operator-set; default 5000 / 500
+        if (premium * (1 + BUFFER) > cap - reserve
+                or premium * (1 + BUFFER) > available - reserve):
+            raise LiveRejected("Insufficient funds or configured allocation limit")
     return premium
 
 

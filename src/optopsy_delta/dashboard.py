@@ -63,7 +63,7 @@ button:focus-visible{outline:2px solid #fff}.row{display:flex;justify-content:sp
 <article><h2>Open positions</h2><div class="value" id="positions">—</div><div class="sub">at broker</div></article>
 <article><h2>Active orders</h2><div class="value" id="orders">—</div><div class="sub">at broker</div></article>
 <article><h2>USD available</h2><div class="value" id="cash">—</div><div class="sub" id="broker">—</div></article>
-<article><h2>Capital limit</h2><div class="value">₹5,000</div><div class="sub">₹500 reserve, 1 contract at a time</div></article>
+<article><h2>Capital limit</h2><div class="value" id="cap">—</div><div class="sub" id="cap-sub">—</div></article>
 </section>
 
 <article class="wide"><h2>Recent live orders</h2><div class="tbl"><table><thead><tr>
@@ -94,7 +94,8 @@ PENDING_ORDER_WAIT:"Waiting for an order to settle",ALREADY_ATTEMPTED:"Order for
 ENTRY_BLOCKED_ACCOUNT_NOT_CLEAR:"Entry blocked: account is not clear",ENTRIES_PAUSED_BY_OPERATOR_FILE:"New entries paused (STOP_ENTRIES file)",
 EXIT_DUE_QUOTE_UNAVAILABLE:"Exit is due but no usable quote yet",STOP_ERROR_NO_ACTION:"Error: no action taken",
 RECOVERY_REQUIRED_RECONCILE_FAILED:"STOPPED: an order needs a manual check",LIVE_STANDBY_NOT_ENABLED:"Standby: live interlock is OFF",
-TRADING_CREDENTIALS_MISSING:"Standby: trading keys missing"};
+TRADING_CREDENTIALS_MISSING:"Standby: trading keys missing",CAPITAL_CONFIG_INVALID:"Standby: capital settings in .env are invalid",
+ENTRY_SKIPPED_BUDGET_TOO_SMALL:"Signal active, but budget is too small for one contract"};
 const LEGACY=["LIFECYCLE_JOURNAL_UNAVAILABLE","EXIT_JOURNAL_UNAVAILABLE","PRODUCT_NOT_BOUND","AUTONOMOUS_ENTRY_EXIT_CONTROLLER_NOT_RELEASED"];
 const NOTES={BROKER_CREDENTIALS_MISSING:"Dashboard has no read-only key (optional). Add DELTA_INDIA_API_KEY to see account numbers here.",
 INDEPENDENT_LIVE_SAFETY_AUDIT_PENDING:"No independent safety audit yet. Start small and watch the first trades.",
@@ -109,7 +110,7 @@ function renderLive(live){
  set("live-detail",bits.join(" · ")||"The live worker has not reported yet.");
  let mode,mc,hc="grey";
  if(ev==="NO_LIVE_HEARTBEAT"||a===null){mode="WORKER NOT RUNNING";mc="grey"}
- else if(ev==="LIVE_STANDBY_NOT_ENABLED"||ev==="TRADING_CREDENTIALS_MISSING"){mode="LIVE OFF · STANDBY";mc="amber"}
+ else if(ev==="LIVE_STANDBY_NOT_ENABLED"||ev==="TRADING_CREDENTIALS_MISSING"||ev==="CAPITAL_CONFIG_INVALID"){mode="LIVE OFF · STANDBY";mc="amber"}
  else if(a>180){mode="WORKER STALE";mc="red"}
  else if(/^(STOP_|RECOVERY_)/.test(ev)){mode="LIVE · NEEDS ATTENTION";mc="red"}
  else{mode="LIVE ARMED";mc="green"}
@@ -146,6 +147,9 @@ async function load(){
   set("orders",d.active_orders===null?"Unknown":d.active_orders);
   set("cash",d.available_usd===null?"Not verified":d.available_usd);
   set("broker",d.broker_healthy?"Connected":d.broker_status);
+  if(d.capital_cap_inr==null){set("cap","Invalid config");set("cap-sub","Check OPTOPSY_CAPITAL_INR in .env")}
+  else{set("cap","₹"+Number(d.capital_cap_inr).toLocaleString("en-IN"));
+   set("cap-sub","₹"+Number(d.reserve_inr).toLocaleString("en-IN")+" reserve · up to "+d.max_contracts+" contract"+(d.max_contracts==1?"":"s")+" per entry")}
   const p=d.paper||{};
   set("paper-state",p.status||"UNAVAILABLE");set("paper-cash",p.cash_inr??"—");
   set("paper-closed",p.closed_trades??"—");set("paper-pnl",p.realized_pnl_inr??"—");
@@ -167,6 +171,15 @@ def _product_id() -> int | None:
     if not value.isascii() or not value.isdecimal() or int(value) <= 0:
         raise ValueError("Invalid configured Delta product ID")
     return int(value)
+
+
+def _capital_view() -> dict:
+    try:
+        from .capital import capital_inr, max_contracts, reserve_inr
+        return {"capital_cap_inr": int(capital_inr()), "reserve_inr": int(reserve_inr()),
+                "max_contracts": max_contracts()}
+    except Exception:  # noqa: BLE001 - invalid config is shown, never defaulted upward
+        return {"capital_cap_inr": None, "reserve_inr": None, "max_contracts": None}
 
 
 def _read_live_orders(path: str, limit: int = 10) -> list[dict]:
@@ -261,7 +274,7 @@ def collect_status(client: DeltaClient | None = None) -> dict:
         "open_positions": watchdog["account_position_rows"],
         "active_orders": watchdog["active_order_rows"],
         "available_usd": preflight["available_usd_equivalent"] if preflight else None,
-        "capital_cap_inr": 5000, "reserve_inr": 500,
+        **_capital_view(),
         "blockers": sorted(blockers),
         "journals_note": ("Only existing on-disk journals are read. "
                           "Missing bindings are never silently initialized."),
