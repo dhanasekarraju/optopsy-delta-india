@@ -47,7 +47,6 @@ def test_invalid_or_symlinked_files_are_not_trusted(tmp_path):
 
 def test_existing_exit_pending_detectable(tmp_path):
     j = ExitAttemptJournal(tmp_path / "exit.sqlite")
-    from optopsy_delta.exit_recovery import ExitRecoveryError
 
     candidate = {
         "status": "DRAFT_EXIT_ONLY", "submit_authorized": False,
