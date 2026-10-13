@@ -17,6 +17,10 @@ Upstream: https://github.com/goldspanlabs/optopsy — stable version **2.3.0** (
 - Private checks use a separate read-only API key kept **only** in the environment. Never paste keys into chat or git.
 - VPS isolation: do not use Apex, ZeroBha, Nautilus or Freqtrade directories, processes, databases or credentials.
 
+## VPS read-only deployment
+
+See [docs/VPS_READONLY_CHECK.md](docs/VPS_READONLY_CHECK.md). The standalone Docker Compose service makes one-shot public BTC/ETH market-data captures; it has no keys, no orders, no ports, and does not touch the other bots. Zero usable normalized quotes now fails validation with a nonzero exit code while preserving raw evidence.
+
 ## Install (VPS separate virtualenv, Python 3.12+)
 
 ```bash

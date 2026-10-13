@@ -37,7 +37,8 @@ def main(argv: list[str] | None = None) -> int:
         normalized = snapshot_to_rows(tickers, products, captured_at=now)
         print(f"Saved {path}; raw tickers={len(tickers)}, usable quotes={len(normalized)}")
         if not normalized:
-            print("WARNING: zero valid Optopsy rows; inspect product metadata. Raw quotes saved.")
+            print("ERROR: zero usable quotes; capture preserved for diagnosis. No live data validation.")
+            return 3
         return 0
     if args.command == "export-daily":
         paths = sorted(Path(args.directory).glob("*.json"))

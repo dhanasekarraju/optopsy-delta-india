@@ -1,0 +1,22 @@
+# One-shot public GET capture only; no account API keys or order execution.
+services:
+  capture:
+    profiles: ["manual"]
+    build:
+      context: .
+      dockerfile: Dockerfile.readonly
+    image: optopsy-delta-india:readonly
+    restart: "no"
+    user: "${OPTOPSY_UID:-1000}:${OPTOPSY_GID:-1000}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 768m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=32m
+    volumes:
+      - ./data:/opt/optopsy-delta/data:rw
+    command: ["capture", "--underlying", "BTC"]
