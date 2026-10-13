@@ -1,5 +1,6 @@
 """Paper worker never uses a real order transport or trading API credentials."""
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -40,7 +41,7 @@ def test_paper_buy_exit_and_restart(tmp_path):
     entry = decide_paper(ledger=ledger, signal=signal(), contracts=[contract()],
                          quotes=tickers(), now=NOW)
     assert entry["event"] == "SIMULATED_BUY"
-    assert ledger.status()["cash_inr"] == "4982.15000"
+    assert Decimal(ledger.status()["cash_inr"]) == Decimal("4982.15")
     assert PaperLedger(path).status()["position"]["product_id"] == 44
     pending = decide_paper(ledger=PaperLedger(path),
                            signal=signal(entry=False), contracts=[],
@@ -51,7 +52,7 @@ def test_paper_buy_exit_and_restart(tmp_path):
     assert exit_fill["event"] == "SIMULATED_SELL"
     assert PaperLedger(path).status()["position"] is None
     assert PaperLedger(path).status()["fill_count"] == 2
-    assert PaperLedger(path).status()["cash_inr"] == "4997.492500"
+    assert Decimal(PaperLedger(path).status()["cash_inr"]) == Decimal("4997.4925")
 
 
 def test_duplicate_paper_fill_is_idempotent(tmp_path):
