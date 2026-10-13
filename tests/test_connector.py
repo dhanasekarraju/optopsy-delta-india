@@ -8,7 +8,12 @@ import pytest
 
 from optopsy_delta.client import DeltaClient, DeltaError, SignatureError, sign_message
 from optopsy_delta.policy import CapitalPolicy, CapitalPolicyError
-from optopsy_delta.snapshot import SnapshotError, snapshot_to_rows, snapshots_to_daily_optopsy, write_snapshot
+from optopsy_delta.snapshot import (
+    SnapshotError,
+    snapshot_to_rows,
+    snapshots_to_daily_optopsy,
+    write_snapshot,
+)
 
 
 class FakeResponse:
@@ -106,7 +111,7 @@ def test_budget_fails_above_5000_and_preserves_reserve():
         p.estimate_long_option(limit_price_usd='50000', contract_value='0.001',
                                size=2, available_usd='58.8')
     with pytest.raises(CapitalPolicyError):
-        CapitalPolicy(budget_inr=Decimal('5001'))
+        CapitalPolicy(budget_inr=Decimal(5001))
     with pytest.raises(CapitalPolicyError):
         p.estimate_long_option(limit_price_usd='NaN', contract_value='0.001',size=1,available_usd='60')
     with pytest.raises(CapitalPolicyError):
