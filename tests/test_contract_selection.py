@@ -71,7 +71,13 @@ def test_dte_84_accepted_due_to_original_pd_cut_boundary():
 
 
 def test_original_bid_ask_filter_is_strictly_greater_than_point_zero_five():
-    options = [product(1), product(2, days=14), product(3, days=21)]
+    # Use a 0.01 synthetic tick so this tests the original >0.05 filter
+    # independently of the broker-facing price-alignment safety check.
+    options = [
+        product(1, tick_size="0.01"),
+        product(2, days=14, tick_size="0.01"),
+        product(3, days=21, tick_size="0.01"),
+    ]
     quotes = [
         ticker(1, bid="0.05", ask="0.5"),
         ticker(2, bid="0.1", ask="0.5"),
