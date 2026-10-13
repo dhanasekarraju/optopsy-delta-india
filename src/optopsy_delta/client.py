@@ -45,7 +45,7 @@ class DeltaClient:
         self._session = session or requests.Session()
 
     def _get(self, path: str, *, params: Mapping[str, str] | None = None,
-             signed: bool = False) -> Any:
+             signed: bool = False, envelope: bool = False) -> Any:
         if not path.startswith(PREFIX + "/") or any(x in path for x in ("?", "#", "..")):
             raise ValueError("Only known Delta v2 endpoint paths are permitted")
         params = params or {}
@@ -71,7 +71,7 @@ class DeltaClient:
             raise DeltaError("Delta request failed; inspect connectivity and API permissions") from exc
         if not isinstance(obj, dict) or obj.get("success") is not True or "result" not in obj:
             raise DeltaError("Delta returned an unsuccessful or unrecognized API response")
-        return obj["result"]
+        return obj if envelope else obj["result"]
 
     def option_tickers(self, underlying: str = "BTC", expiry_date: str | None = None) -> list[dict]:
         underlying = underlying.upper()
@@ -156,3 +156,66 @@ class DeltaClient:
         if not isinstance(result, list):
             raise DeltaError("Unexpected order response")
         return result
+
+    def product_position(self, product_id: int) -> dict:
+        """Get current per-product position; general margined list may lag."""
+        if type(product_id) is not int or product_id <= 0:
+            raise ValueError("Invalid product ID")
+        result = self._get("/v2/positions", params={"product_id": str(product_id)}, signed=True)
+        if not isinstance(result, dict) or "size" not in result:
+            raise DeltaError("Invalid real-time position response")
+        return result
+
+    def fills_for_product(
+        self, product_id: int, *, start_time_us: int, end_time_us: int,
+        max_pages: int = 20,
+    ) -> list[dict]:
+        """Exhaustively read a *bounded interval* of authenticated fills.
+
+        Callers must not consider orders filled unless ALL pages have been read.
+        No place/edit/cancel requests exist in this read-only API client.
+        """
+        if type(product_id) is not int or product_id <= 0:
+            raise ValueError("Invalid product ID")
+        if (type(start_time_us) is not int or type(end_time_us) is not int
+                or start_time_us <= 0 or end_time_us <= start_time_us):
+            raise ValueError("Invalid microsecond fill time interval")
+        if type(max_pages) is not int or not 1 <= max_pages <= 100:
+            raise ValueError("Invalid page cap")
+        records: list[dict] = []
+        seen_cursors: set[str] = set()
+        seen_fills: set[str] = set()
+        after: str | None = None
+        for _ in range(max_pages):
+            params = {
+                "product_ids": str(product_id), "start_time": str(start_time_us),
+                "end_time": str(end_time_us), "page_size": "100",
+            }
+            if after is not None:
+                params["after"] = after
+            response = self._get("/v2/fills", params=params, signed=True, envelope=True)
+            page, meta = response["result"], response.get("meta")
+            if not isinstance(page, list) or not isinstance(meta, dict):
+                raise DeltaError("Missing fills page or pagination metadata")
+            for fill in page:
+                if not isinstance(fill, dict):
+                    raise DeltaError("Malformed fill record")
+                ident = str(fill.get("id", ""))
+                if not ident or ident in seen_fills:
+                    raise DeltaError("Missing or duplicate fill ID")
+                if str(fill.get("product_id")) != str(product_id):
+                    raise DeltaError("Fill from unexpected product")
+                if not isinstance(fill.get("order_id"), (int, str)) or not str(
+                    fill["order_id"]
+                ):
+                    raise DeltaError("Fill missing order ID")
+                seen_fills.add(ident)
+                records.append(fill)
+            cursor = meta.get("after")
+            if cursor is None or cursor == "":
+                return records
+            if not isinstance(cursor, str) or cursor in seen_cursors:
+                raise DeltaError("Repeated or invalid fills cursor")
+            seen_cursors.add(cursor)
+            after = cursor
+        raise DeltaError("Incomplete fill history: pagination safety limit")
