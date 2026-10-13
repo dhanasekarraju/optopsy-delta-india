@@ -5,7 +5,7 @@ import pytest
 
 pytest.importorskip("optopsy")
 
-from optopsy_delta.original_signals import evaluate_original_rsi  # noqa: E402
+from optopsy_delta.original_signals import evaluate_original_rsi
 
 END = datetime(2026, 10, 14, tzinfo=UTC)
 
