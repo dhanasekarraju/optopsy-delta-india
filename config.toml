@@ -1,0 +1,4 @@
+# Single operator mode switch.
+# true  = authenticated-public-data paper simulation, no exchange orders
+# false = request live mode (currently intentionally LOCKED until verified)
+paper_enabled = true
