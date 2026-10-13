@@ -10,7 +10,8 @@ import hashlib
 import hmac
 import os
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlencode
 
 import requests

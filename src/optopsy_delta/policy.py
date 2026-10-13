@@ -4,6 +4,7 @@ Rates and balances in USD equivalent are exposed by Delta India at a fixed platf
 conversion of 85 INR per USD per current documentation; verify before deployment.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
@@ -26,13 +27,13 @@ def dec(value: object) -> Decimal:
 
 @dataclass(frozen=True)
 class CapitalPolicy:
-    budget_inr: Decimal = Decimal("5000")
-    usd_inr: Decimal = Decimal("85")
-    reserve_inr: Decimal = Decimal("500")
+    budget_inr: Decimal = Decimal(5000)
+    usd_inr: Decimal = Decimal(85)
+    reserve_inr: Decimal = Decimal(500)
     max_premium_fee_buffer: Decimal = Decimal("0.03")
 
     def __post_init__(self) -> None:
-        if not (Decimal(0) < self.budget_inr <= Decimal("5000")):
+        if not (Decimal(0) < self.budget_inr <= Decimal(5000)):
             raise CapitalPolicyError("Project budget must be between 0 and INR 5000")
         if self.usd_inr <= 0 or self.reserve_inr < 0 or self.reserve_inr >= self.budget_inr:
             raise CapitalPolicyError("Invalid currency rate or reserve")

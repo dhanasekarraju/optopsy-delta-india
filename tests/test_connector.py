@@ -1,14 +1,14 @@
-from datetime import datetime, timezone, timedelta
-from decimal import Decimal
 import json
-from urllib.parse import parse_qs, urlparse
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from optopsy_delta.client import DeltaClient, DeltaError, SignatureError, sign_message
 from optopsy_delta.policy import CapitalPolicy, CapitalPolicyError
-from optopsy_delta.snapshot import SnapshotError, snapshot_to_rows, write_snapshot, snapshots_to_daily_optopsy
+from optopsy_delta.snapshot import SnapshotError, snapshot_to_rows, snapshots_to_daily_optopsy, write_snapshot
 
 
 class FakeResponse:
@@ -34,7 +34,8 @@ class FakeSession:
 
 def test_signing_matches_india_docs():
     # Prehash defined by Delta HMAC spec; verify no accidental '?'/encoding difference.
-    import hmac, hashlib
+    import hashlib
+    import hmac
     prehash = 'GET1542110948/v2/orders?product_id=1&state=open'
     expected = hmac.new(b'testsecret', prehash.encode(), hashlib.sha256).hexdigest()
     assert sign_message('testsecret','GET','1542110948','/v2/orders','?product_id=1&state=open') == expected
@@ -120,7 +121,7 @@ TICKER = {'product_id':123,'quotes':{'best_bid':'20','best_ask':'22'},
 
 
 def test_snapshot_preserves_precise_time_and_validates(tmp_path):
-    t = datetime(2026,10,13,4,15,30,tzinfo=timezone.utc)
+    t = datetime(2026,10,13,4,15,30,tzinfo=UTC)
     rows = snapshot_to_rows([TICKER], [PRODUCT], captured_at=t)
     assert len(rows) == 1 and rows[0]['quote_date'] == '2026-10-13T04:15:30+00:00'
     assert rows[0]['option_type'] == 'call'
@@ -137,7 +138,7 @@ def test_snapshot_preserves_precise_time_and_validates(tmp_path):
 
 
 def test_daily_export_keeps_last_of_day_not_fake_intraday():
-    t = datetime(2026,10,13,4,15,tzinfo=timezone.utc)
+    t = datetime(2026,10,13,4,15,tzinfo=UTC)
     first = {'normalized':snapshot_to_rows([TICKER],[PRODUCT],captured_at=t)}
     later = dict(TICKER)
     later['quotes'] = {'best_bid':'27','best_ask':'28'}
@@ -149,7 +150,7 @@ def test_daily_export_keeps_last_of_day_not_fake_intraday():
 
 
 def test_missing_quote_or_product_metadata_never_fabricated():
-    t=datetime(2026,10,13,tzinfo=timezone.utc)
+    t=datetime(2026,10,13,tzinfo=UTC)
     assert snapshot_to_rows([{'product_id':123,'quotes':{'best_ask':'22'}}],[PRODUCT],captured_at=t)==[]
     p=dict(PRODUCT);p.pop('settlement_time')
     assert snapshot_to_rows([TICKER],[p],captured_at=t)==[]
@@ -164,7 +165,7 @@ def test_positions_uses_margined_endpoint():
     assert s.calls[0][0]=='https://api.india.delta.exchange/v2/positions/margined'
 
 def test_product_currency_fallback():
-    t=datetime(2026,10,13,tzinfo=timezone.utc)
+    t=datetime(2026,10,13,tzinfo=UTC)
     p=dict(PRODUCT)
     p.pop('underlying_asset')
     p['contract_unit_currency']='BTC'
@@ -172,7 +173,7 @@ def test_product_currency_fallback():
 
 
 def test_underlying_candidate_uses_contract_unit_currency_when_other_is_usd():
-    t=datetime(2026,10,13,tzinfo=timezone.utc)
+    t=datetime(2026,10,13,tzinfo=UTC)
     p=dict(PRODUCT)
     p['underlying_asset']={'symbol':'USD'}
     p['contract_unit_currency']='BTC'

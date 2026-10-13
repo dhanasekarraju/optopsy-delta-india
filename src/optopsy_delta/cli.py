@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .client import DeltaClient, DeltaError
-from .snapshot import snapshot_to_rows, write_snapshot, snapshots_to_daily_optopsy
+from .snapshot import snapshot_to_rows, snapshots_to_daily_optopsy, write_snapshot
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -31,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         # Verify product metadata is complete before recording.
         products = client.live_products()
         tickers = client.option_tickers(args.underlying)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         path = write_snapshot(args.directory, underlying=args.underlying,
                               captured_at=now, tickers=tickers, products=products)
         normalized = snapshot_to_rows(tickers, products, captured_at=now)

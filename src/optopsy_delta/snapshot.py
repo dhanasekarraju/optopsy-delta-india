@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +24,12 @@ def _iso_datetime(value: Any) -> datetime:
             v /= 1_000_000
         elif abs(v) > 1e11:
             v /= 1_000
-        return datetime.fromtimestamp(v, tz=timezone.utc)
+        return datetime.fromtimestamp(v, tz=UTC)
     v = str(value).replace("Z", "+00:00")
     dt = datetime.fromisoformat(v)
     if dt.tzinfo is None:
         raise SnapshotError("Naive timestamp not accepted")
-    return dt.astimezone(timezone.utc)
+    return dt.astimezone(UTC)
 
 
 def snapshot_to_rows(tickers: list[dict], products: list[dict], *,
@@ -68,7 +68,7 @@ def snapshot_to_rows(tickers: list[dict], products: list[dict], *,
             "underlying_symbol": underlying,
             "option_type": "call" if p["contract_type"] == "call_options" else "put",
             "expiration": expiry.isoformat(),
-            "quote_date": captured_at.astimezone(timezone.utc).isoformat(),
+            "quote_date": captured_at.astimezone(UTC).isoformat(),
             "strike": strike,
             "bid": bid,
             "ask": ask,
@@ -89,10 +89,10 @@ def write_snapshot(folder: str | Path, *, underlying: str,
         raise SnapshotError("Only BTC/ETH and timezone-aware captures are allowed")
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    filename = f"{underlying}-{captured_at.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    filename = f"{underlying}-{captured_at.astimezone(UTC).strftime('%Y%m%dT%H%M%S%fZ')}.json"
     target = folder / filename
     payload = {"source": "Delta Exchange India public API", "underlying": underlying,
-               "captured_at": captured_at.astimezone(timezone.utc).isoformat(),
+               "captured_at": captured_at.astimezone(UTC).isoformat(),
                "raw_tickers": tickers, "raw_products": products,
                "normalized": snapshot_to_rows(tickers, products, captured_at=captured_at)}
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
