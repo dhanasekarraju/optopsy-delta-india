@@ -152,9 +152,8 @@ def test_incident_transition_is_durable_and_append_only(tmp_path):
     assert restarted.status()["transitions"] == 2
     assert restarted.status()["latest_status"] == "ATTENTION_REQUIRED"
     assert journal.path.stat().st_mode & 0o777 == 0o600
-    with sqlite3.connect(journal.path) as db:
-        with pytest.raises(sqlite3.DatabaseError):
-            db.execute("DELETE FROM observations")
+    with sqlite3.connect(journal.path) as db, pytest.raises(sqlite3.DatabaseError):
+        db.execute("DELETE FROM observations")
 
 
 def test_forged_clear_report_fails_before_any_db_write(tmp_path):
@@ -164,3 +163,15 @@ def test_forged_clear_report_fails_before_any_db_write(tmp_path):
     with pytest.raises(SafetyWatchdogError):
         journal.record(check() | {"issues": ["fabricated"]}, observed_at=3)
     assert journal.status()["transitions"] == 0
+
+
+def test_missing_api_credentials_are_not_called_an_exchange_outage():
+    from optopsy_delta.client import DeltaClient
+
+    report = read_only_watchdog_check(
+        client=DeltaClient(api_key="", api_secret=""), product_id=None,
+        now=NOW, lifecycle_status=None, exit_status=None,
+    )
+    assert "BROKER_CREDENTIALS_MISSING" in report["issues"]
+    assert "BROKER_UNREACHABLE_OR_INVALID" not in report["issues"]
+    assert report["live_entry_authorized"] is False
