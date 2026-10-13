@@ -115,7 +115,7 @@ class ExitAttemptJournal:
         with closing(self._db()) as db:
             entries = [dict(row) for row in db.execute(
                 "SELECT seq,client_id,signal_id,product_id,before_qty,requested_qty,"
-                "state,filled_qty,after_qty FROM attempts ORDER BY seq")]
+                "state,broker_id,filled_qty,after_qty FROM attempts ORDER BY seq")]
         return {"attempts": entries, "live_order_authorized": False}
 
     def prepare(self, draft: dict) -> dict:
