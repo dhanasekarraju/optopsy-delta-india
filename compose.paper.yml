@@ -19,4 +19,5 @@ services:
       OPTOPSY_LIVE_ENABLED: "NO"
     volumes:
       - ./data:/opt/optopsy-delta/data:rw
+      - ./config.toml:/opt/optopsy-delta/config.toml:ro
     command: ["python", "-m", "optopsy_delta.paper_worker", "--interval", "60"]

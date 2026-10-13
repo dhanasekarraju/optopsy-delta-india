@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import time
 from contextlib import closing
@@ -19,6 +18,7 @@ from pathlib import Path
 from .client import DeltaClient
 from .contract_selection import screen_long_calls
 from .original_signals import closed_candles, evaluate_original_rsi
+from .mode import require_paper
 
 START_INR = Decimal(5000)
 RESERVE_INR = Decimal(500)
@@ -66,6 +66,10 @@ class PaperLedger:
                 BEFORE UPDATE ON fills BEGIN SELECT RAISE(ABORT,'Immutable fills'); END""")
             con.execute("""CREATE TRIGGER IF NOT EXISTS paper_fills_no_delete
                 BEFORE DELETE ON fills BEGIN SELECT RAISE(ABORT,'Immutable fills'); END""")
+            con.execute("""CREATE TABLE IF NOT EXISTS paper_heartbeat (
+                id INTEGER PRIMARY KEY CHECK(id=1), observed_at TEXT NOT NULL,
+                last_event TEXT NOT NULL, error_type TEXT
+            )""")
             con.execute(
                 "INSERT OR IGNORE INTO account VALUES(1,?,?,?,?)",
                 (str(START_INR), None, None, datetime.now(UTC).isoformat()),
@@ -89,6 +93,13 @@ class PaperLedger:
                 "position": json.loads(row["position"]) if row["position"] else None,
                 "last_action_id": row["last_action_id"], "fill_count": fills,
                 "real_orders_sent": 0}
+
+    def heartbeat(self, event: str, now: datetime, error_type: str | None = None) -> None:
+        with closing(self._db()) as con:
+            con.execute("INSERT INTO paper_heartbeat VALUES(1,?,?,?) "
+                        "ON CONFLICT(id) DO UPDATE SET observed_at=excluded.observed_at, "
+                        "last_event=excluded.last_event,error_type=excluded.error_type",
+                        (now.astimezone(UTC).isoformat(), event, error_type))
 
     def apply(self, *, action_id: str, side: str, contract: dict, price: Decimal,
               quantity: int, day: str, now: datetime) -> dict:
@@ -259,18 +270,25 @@ def run_once(*, client: DeltaClient, ledger: PaperLedger,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="UNMODIFIED Optopsy RSI PAPER bot only")
     parser.add_argument("--db", default="data/paper-optopsy.sqlite")
+    parser.add_argument("--config", default="config.toml")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--interval", type=int, default=60)
     args = parser.parse_args(argv)
     if not 30 <= args.interval <= 3600:
         parser.error("Interval must be from 30 to 3600 seconds")
+    require_paper(args.config)
     ledger = PaperLedger(args.db)
     client = DeltaClient(api_key="", api_secret="")  # PUBLIC data only
     while True:
         try:
-            print(json.dumps(run_once(client=client, ledger=ledger),
-                             sort_keys=True), flush=True)
+            require_paper(args.config)
+            result = run_once(client=client, ledger=ledger)
+            ledger.heartbeat(result["actions"][-1]["event"] if result["actions"]
+                             else "OBSERVED", datetime.now(UTC))
+            print(json.dumps(result, sort_keys=True), flush=True)
         except Exception as exc:  # noqa: BLE001 - never fake a trade on failure
+            ledger.heartbeat("STOP_DATA_OR_SIGNAL_ERROR", datetime.now(UTC),
+                             type(exc).__name__)
             print(json.dumps({"mode": "PAPER_ONLY", "event": "STOP_DATA_OR_SIGNAL_ERROR",
                               "error_type": type(exc).__name__,
                               "real_orders_sent": 0}), flush=True)

@@ -15,6 +15,7 @@ from .account_preflight import inspect_account
 from .client import DeltaClient, SignatureError
 from .existing_journals import existing_exit_status, existing_lifecycle_status
 from .safety_watchdog import observe_safety
+from .paper_reporting import read_paper_status
 
 HOST = "0.0.0.0"  # Container-only; compose publishes to host LOOPBACK.
 PORT = 8097
@@ -55,6 +56,12 @@ button:focus-visible{outline:2px solid white}
 <article class="wide"><h2>Launch blockers / operator attention</h2>
 <ul id="issues" class="warnings"><li>Loading status...</li></ul>
 <p class="muted" id="journal">No trading journals created by this dashboard.</p></article>
+<article class="wide"><h2>Paper strategy account (simulated)</h2>
+<div class="layout"><div><small>Paper status</small><div class="value" id="paper-state">—</div></div>
+<div><small>Paper cash ₹</small><div class="value" id="paper-cash">—</div></div>
+<div><small>Closed trades</small><div class="value" id="paper-closed">—</div></div>
+<div><small>Realized P&L ₹</small><div class="value" id="paper-pnl">—</div></div></div>
+<p id="paper-position">Paper position: —</p><p id="paper-event" class="muted">—</p></article>
 <article class="wide"><h2>Observed at</h2><p id="observed">—</p>
 <p class="muted">This page refreshes every 30 seconds. Exchange snapshots are not atomic.
 No alert delivery, autonomous exits, or broker-order protection is active.</p>
@@ -77,6 +84,13 @@ async function load(){
   set("readiness","BLOCKED — NO LIVE ORDERS");
   set("observed",data.observed_at_utc);
   set("journal",data.journals_note);
+  const paper=data.paper||{};
+  set("paper-state",paper.status||"UNAVAILABLE");
+  set("paper-cash",paper.cash_inr??"—");
+  set("paper-closed",paper.closed_trades??"—");
+  set("paper-pnl",paper.realized_pnl_inr??"—");
+  set("paper-position",paper.position?"Paper position: "+paper.position.underlying+" "+paper.position.symbol+" × "+paper.position.quantity:"Paper position: flat");
+  set("paper-event","Last paper observation: "+(paper.observed_at_utc||"none")+" / "+(paper.last_event||"none"));
   const warnings=document.getElementById("issues");
   warnings.replaceChildren();
   for(const issue of data.blockers){const li=document.createElement("li");li.textContent=issue;warnings.append(li)}
@@ -145,7 +159,12 @@ def collect_status(client: DeltaClient | None = None) -> dict:
             blockers.add("WALLET_PREFLIGHT_INVALID")
     blockers.add("AUTONOMOUS_ENTRY_EXIT_CONTROLLER_NOT_RELEASED")
     blockers.add("INDEPENDENT_LIVE_SAFETY_AUDIT_PENDING")
+    try:
+        paper = read_paper_status(os.getenv("OPTOPSY_PAPER_DB", "data/paper-optopsy.sqlite"))
+    except Exception:  # noqa: BLE001 - broken paper ledger never affects broker status
+        paper = {"mode": "PAPER", "status": "REPORT_ERROR", "real_orders_sent": 0}
     return {
+        "paper": paper,
         "mode": "READ_ONLY_DASHBOARD",
         "observed_at_utc": now.isoformat(),
         "broker_healthy": broker_healthy,

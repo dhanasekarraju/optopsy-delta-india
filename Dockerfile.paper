@@ -3,6 +3,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /opt/optopsy-delta
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY config.toml ./config.toml
 RUN python -m pip install --no-cache-dir ".[research]"
 USER 65532:65532
 CMD ["python", "-m", "optopsy_delta.paper_worker", "--interval", "60"]
