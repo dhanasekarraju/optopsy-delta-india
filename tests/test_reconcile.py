@@ -123,7 +123,7 @@ def test_order_fill_mismatches_rejected():
 
 
 def test_broker_funds_zero_wont_produce_fake_fill():
-    from optopsy_delta.live_gateway import OrderIntent, validate, LiveRejected
+    from optopsy_delta.live_gateway import LiveRejected, OrderIntent, validate
 
     intent = OrderIntent(signal_id="no-money", product_id=44, side="buy",
                          size=1, limit_price="20", contract_value="0.01",
