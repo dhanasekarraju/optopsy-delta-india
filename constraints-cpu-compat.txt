@@ -1,0 +1,4 @@
+# Tested set. NumPy 2.2.x is built for baseline x86-64 (SSE/SSE2/SSE3); newer NumPy wheels
+# require X86_V2 and crash on older VPS CPUs ("NumPy was built with baseline optimizations").
+numpy==2.2.6
+pandas==3.0.6

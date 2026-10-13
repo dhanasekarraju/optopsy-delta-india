@@ -32,3 +32,8 @@ worker (entry `rsi_below(14,30)`, exit `rsi_above(14,70)`, 0.30-delta screen, so
 - Exits are IOC at best bid: a thin book can leave a position unsold until a later cycle.
 - Wallet INR value uses the fixed 85 USD/INR convention in this repo; verify with Delta.
 - Fees/GST on the real fill are not reconciled against the fills feed yet.
+
+## Older VPS CPUs
+`constraints-cpu-compat.txt` pins NumPy 2.2.6 (baseline x86, no X86_V2 requirement) and the
+tested pandas. If you see "NumPy was built with baseline optimizations", rebuild with
+`docker compose -f compose.live.yml up -d --build` after pulling this branch.

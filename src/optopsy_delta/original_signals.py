@@ -98,8 +98,16 @@ def evaluate_original_rsi(
     entering = op.signal_dates(data, op.rsi_below(period=14, threshold=30))
     exiting = op.signal_dates(data, op.rsi_above(period=14, threshold=70))
     date = data.iloc[-1]["quote_date"].floor("D")
-    is_entry = bool((entering["quote_date"] == date).any())
-    is_exit = bool((exiting["quote_date"] == date).any())
+    # Optopsy returns tz-naive dates while our candles are UTC-aware. Comparing those directly
+    # silently matches nothing on pandas 3.x (so a real signal would never fire). Compare by
+    # calendar day string, which is correct for naive and aware values alike.
+    day = str(date.date())
+
+    def _days(frame: Any) -> set[str]:
+        return set(pd.to_datetime(frame["quote_date"]).dt.strftime("%Y-%m-%d"))
+
+    is_entry = day in _days(entering)
+    is_exit = day in _days(exiting)
     if is_entry and is_exit:
         raise OriginalSignalError("Contradictory original signals")
     return {
