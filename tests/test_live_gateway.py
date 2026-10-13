@@ -21,15 +21,16 @@ NOW = 1791878400
 
 
 def intent(**kw):
-    args = dict(signal_id="signal-a", product_id=123, side="buy", size=1,
-                limit_price="20", contract_value="0.01", usd_inr="85",
-                ticker_timestamp=NOW, reduce_only=False)
+    args = {"signal_id": "signal-a", "product_id": 123, "side": "buy", "size": 1,
+            "limit_price": "20", "contract_value": "0.01", "usd_inr": "85",
+            "ticker_timestamp": NOW, "reduce_only": False}
     return OrderIntent(**(args | kw))
 
 
 def check(**kw):
-    return dict(now=NOW + 2, cash_inr="5000", tick_size="0.5", observed_bid="19",
-                observed_ask="20", observed_depth="3", external_exposure=False) | kw
+    return {"now": NOW + 2, "cash_inr": "5000", "tick_size": "0.5",
+            "observed_bid": "19", "observed_ask": "20", "observed_depth": "3",
+            "external_exposure": False} | kw
 
 
 def test_client_order_id_stable_distinct_below_32_chars():
@@ -190,8 +191,8 @@ def test_kill_switch_still_allows_read_only_reconciliation(monkeypatch):
     }}))
     adapter = DeltaTradingTransport(api_key="fake", api_secret="fake", session=http,
                                      live_enabled=False)
-    from tempfile import TemporaryDirectory
     from pathlib import Path
+    from tempfile import TemporaryDirectory
     with TemporaryDirectory() as tmp:
         journal = LiveIntentJournal(Path(tmp) / "orders.sqlite")
         journal.reserve(intent())

@@ -7,6 +7,7 @@ VPS broker client, because this host may lack NumPy's required CPU features.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from math import isfinite
 from typing import Any
 
@@ -70,7 +71,7 @@ def closed_candles(
     if ordered[-1]["time"] != int((end - timedelta(days=1)).timestamp()):
         raise OriginalSignalError("Last completed candle missing")
     if any(int(y["time"]) - int(x["time"]) != 86400
-           for x, y in zip(ordered[:-1], ordered[1:])):
+           for x, y in pairwise(ordered)):
         raise OriginalSignalError("Gap in daily candles")
     return ordered
 
