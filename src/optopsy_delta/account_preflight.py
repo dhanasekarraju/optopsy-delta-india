@@ -1,7 +1,7 @@
 """Read-only account diagnostic; never authorizes any order."""
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 from .client import DeltaClient
