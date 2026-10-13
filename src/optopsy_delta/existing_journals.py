@@ -28,7 +28,7 @@ def _read_existing(path: str | Path, query: str) -> list[sqlite3.Row] | None:
 
 def existing_lifecycle_status(path: str | Path | None) -> dict | None:
     """Read a ledger baseline only if the SQLite file and schema exist."""
-    if path is None:
+    if path is None or Path(path).is_symlink() or not Path(path).is_file():
         return None
     rows = _read_existing(
         path, "SELECT product_id,baseline_us,quarantined,snapshot "
@@ -59,7 +59,7 @@ def existing_lifecycle_status(path: str | Path | None) -> dict | None:
 
 def existing_exit_status(path: str | Path | None) -> dict | None:
     """Read all registered exit states; too many records are untrusted."""
-    if path is None:
+    if path is None or Path(path).is_symlink() or not Path(path).is_file():
         return None
     rows = _read_existing(
         path, "SELECT seq,product_id,state FROM attempts ORDER BY seq LIMIT 1001",
