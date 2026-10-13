@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import contextlib
 import os
+import re
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -37,6 +39,20 @@ def sign_message(secret: str, method: str, timestamp: str, path: str,
     return hmac.new(secret.encode("utf-8"), prehash.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def _diagnostic(path: str, response, exc: Exception) -> str:
+    status = getattr(response, "status_code", None)
+    code = None
+    with contextlib.suppress(Exception):  # diagnostics must never raise
+        err = (response.json() or {}).get("error")
+        raw = err.get("code") if isinstance(err, dict) else err
+        if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", raw):
+            code = raw
+    parts = [f"GET {path}", f"status={status}" if status else f"error={type(exc).__name__}"]
+    if code:
+        parts.append(f"delta_code={code}")
+    return " [" + " ".join(parts) + "]"
+
+
 class DeltaClient:
     def __init__(self, *, api_key: str | None = None, api_secret: str | None = None,
                  session: requests.Session | None = None) -> None:
@@ -62,13 +78,16 @@ class DeltaClient:
                 "signature": sign_message(self._secret, "GET", timestamp, path,
                                           ("?" + query) if query else ""),
             })
+        response = None
         try:
             response = self._session.get(BASE_URL + target, headers=headers, timeout=TIMEOUT)
             response.raise_for_status()
             obj = response.json()
         except (requests.RequestException, ValueError) as exc:
-            # Deliberately omit exception details (may contain request URL/metadata).
-            raise DeltaError("Delta request failed; inspect connectivity and API permissions") from exc
+            # Never include URLs/headers/bodies. Only the path, HTTP status, and Delta's short
+            # error code (e.g. ip_not_whitelisted_for_api_key) are appended for diagnosis.
+            raise DeltaError("Delta request failed; inspect connectivity and API permissions"
+                             + _diagnostic(path, response, exc)) from exc
         if not isinstance(obj, dict) or obj.get("success") is not True or "result" not in obj:
             raise DeltaError("Delta returned an unsuccessful or unrecognized API response")
         return obj if envelope else obj["result"]

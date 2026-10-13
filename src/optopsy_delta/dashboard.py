@@ -62,6 +62,8 @@ button:focus-visible{outline:2px solid white}
 <div><small>Closed trades</small><div class="value" id="paper-closed">—</div></div>
 <div><small>Realized P&L ₹</small><div class="value" id="paper-pnl">—</div></div></div>
 <p id="paper-position">Paper position: —</p><p id="paper-event" class="muted">—</p></article>
+<article class="wide"><h2>Live worker</h2>
+<p id="live-state" class="value">—</p><p id="live-detail" class="muted">—</p></article>
 <article class="wide"><h2>Observed at</h2><p id="observed">—</p>
 <p class="muted">This page refreshes every 30 seconds. Exchange snapshots are not atomic.
 No alert delivery, autonomous exits, or broker-order protection is active.</p>
@@ -81,7 +83,7 @@ async function load(){
   set("positions",data.open_positions===null?"Unknown":data.open_positions);
   set("orders",data.active_orders===null?"Unknown":data.active_orders);
   set("cash",data.available_usd===null?"Not verified":data.available_usd);
-  set("readiness","BLOCKED — NO LIVE ORDERS");
+  set("readiness","READ-ONLY VIEW — this page cannot place orders");
   set("observed",data.observed_at_utc);
   set("journal",data.journals_note);
   const paper=data.paper||{};
@@ -91,6 +93,9 @@ async function load(){
   set("paper-pnl",paper.realized_pnl_inr??"—");
   set("paper-position",paper.position?"Paper position: "+paper.position.underlying+" "+paper.position.symbol+" × "+paper.position.quantity:"Paper position: flat");
   set("paper-event","Last paper observation: "+(paper.observed_at_utc||"none")+" / "+(paper.last_event||"none"));
+  const live=data.live||{};
+  set("live-state",live.event||live.status||"NO_LIVE_HEARTBEAT");
+  set("live-detail",(live.at||"")+(live.reason?" / "+live.reason:"")+(live.symbol?" / "+live.symbol:"")+(live.error_type?" / "+live.error_type:"")+(live.detail?" / "+live.detail:""));
   const warnings=document.getElementById("issues");
   warnings.replaceChildren();
   for(const issue of data.blockers){const li=document.createElement("li");li.textContent=issue;warnings.append(li)}
@@ -114,6 +119,20 @@ def _product_id() -> int | None:
     if not value.isascii() or not value.isdecimal() or int(value) <= 0:
         raise ValueError("Invalid configured Delta product ID")
     return int(value)
+
+
+def _read_live_heartbeat(path: str) -> dict:
+    """Last live-worker result written by the worker; read-only, size-capped, never trusted."""
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(65536)
+        obj = json.loads(raw)
+    except FileNotFoundError:
+        return {"status": "NO_LIVE_HEARTBEAT"}
+    except Exception:  # noqa: BLE001
+        return {"status": "LIVE_HEARTBEAT_UNREADABLE"}
+    keep = ("event", "at", "reason", "symbol", "side", "error_type", "detail", "underlying")
+    return {k: str(obj[k])[:200] for k in keep if isinstance(obj, dict) and k in obj}
 
 
 def collect_status(client: DeltaClient | None = None) -> dict:
@@ -165,6 +184,8 @@ def collect_status(client: DeltaClient | None = None) -> dict:
         paper = {"mode": "PAPER", "status": "REPORT_ERROR", "real_orders_sent": 0}
     return {
         "paper": paper,
+        "live": _read_live_heartbeat(
+            os.getenv("OPTOPSY_LIVE_HEARTBEAT", "data/live-heartbeat.json")),
         "mode": "READ_ONLY_DASHBOARD",
         "observed_at_utc": now.isoformat(),
         "broker_healthy": broker_healthy,

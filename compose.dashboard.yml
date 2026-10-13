@@ -26,6 +26,7 @@ services:
       OPTOPSY_EXIT_DB: "${OPTOPSY_EXIT_DB:-}"
       OPTOPSY_LIVE_ENABLED: "NO"
       OPTOPSY_PAPER_DB: "data/paper-optopsy.sqlite"
+      OPTOPSY_LIVE_HEARTBEAT: "data/live-heartbeat.json"
     command: ["python", "-m", "optopsy_delta.dashboard"]
     entrypoint: []
     volumes:
