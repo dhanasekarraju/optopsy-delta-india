@@ -8,6 +8,8 @@ Safety model (kept from the repository's gateway design):
 * Runs only when BOTH operator interlocks are set (``paper_enabled = false`` in config.toml
   and ``OPTOPSY_LIVE_ENABLED=YES_REAL_ORDERS``). This code never sets either.
 * The BROKER is the source of truth for positions; local state only records our attempts.
+* Expiry: among Optopsy's per-expiry 0.30-delta calls, the one nearest OPTOPSY_TARGET_DTE_DAYS
+  (default 28) and at least OPTOPSY_MIN_DTE_DAYS (default 7). Paper worker keeps soonest expiry.
 * One position at a time, IOC limit orders only. Allocation, reserve and max contracts come from
   .env (defaults INR 5,000 / 500 / 1) and are enforced again by ``live_gateway.validate``. Entries need a flat, order-free account.
 * Every order is journaled before submission; an order with unknown outcome is never
@@ -27,7 +29,15 @@ from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from pathlib import Path
 
 from .account_preflight import account_preflight
-from .capital import CapitalConfigError, capital_inr, max_contracts, reserve_inr, validate_all
+from .capital import (
+    CapitalConfigError,
+    capital_inr,
+    max_contracts,
+    min_dte_days,
+    reserve_inr,
+    target_dte_days,
+    validate_all,
+)
 from .client import DeltaClient
 from .contract_selection import screen_long_calls
 from .live_gateway import (
@@ -149,6 +159,19 @@ def entry_size(*, ask: Decimal, contract_value: Decimal, ask_size: Decimal, cash
         return 0
     affordable = int((budget / per_contract).to_integral_value(rounding=ROUND_FLOOR))
     return max(0, min(max_contracts(), int(ask_size), affordable))
+
+
+def pick_contract(eligible: list[dict]) -> dict | None:
+    """Operational tie-break among Optopsy's one-call-per-expiry screen results.
+
+    The upstream screen does not define which expiry to trade. We take the one closest to the
+    operator's target days-to-expiry (default 28), ignoring anything shorter than the minimum.
+    """
+    target, floor = target_dte_days(), min_dte_days()
+    pool = [c for c in eligible if c["dte_days"] >= floor]
+    if not pool:
+        return None
+    return min(pool, key=lambda c: (abs(c["dte_days"] - target), c["expiry_utc"], c["product_id"]))
 
 
 def _verified_signal(signal: object, now: datetime) -> dict:
@@ -329,8 +352,11 @@ def _consider_entry(*, products: list, client: DeltaClient, now: datetime, evalu
         if not eligible:
             waits.append({"underlying": underlying, "event": "NO_ELIGIBLE_CALL"})
             continue
-        # Upstream screens one call per expiry; soonest expiry is the declared tie-break.
-        contract = min(eligible, key=lambda c: (c["expiry_utc"], c["product_id"]))
+        contract = pick_contract(eligible)  # Upstream screens one call per expiry bucket.
+        if contract is None:
+            waits.append({"underlying": underlying, "event": "NO_ELIGIBLE_CALL_AT_MIN_DTE",
+                          "min_dte_days": min_dte_days()})
+            continue
         pid = contract["product_id"]
         ticker = next((t for t in tickers if isinstance(t, dict) and t.get("product_id") == pid),
                       None)

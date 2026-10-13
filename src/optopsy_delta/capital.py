@@ -64,7 +64,30 @@ def max_contracts() -> int:
     return int(raw)
 
 
+def _env_days(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    if not raw.isdigit() or not 1 <= int(raw) <= 84:
+        raise CapitalConfigError(f"{name} must be a whole number of days from 1 to 84")
+    return int(raw)
+
+
+def target_dte_days() -> int:
+    """Preferred days-to-expiry for entries (default 28 = the 3-4 week bucket)."""
+    return _env_days("OPTOPSY_TARGET_DTE_DAYS", 28)
+
+
+def min_dte_days() -> int:
+    """Never enter an option with fewer days to expiry than this (default 7)."""
+    value = _env_days("OPTOPSY_MIN_DTE_DAYS", 7)
+    if value > target_dte_days():
+        raise CapitalConfigError("OPTOPSY_MIN_DTE_DAYS cannot exceed OPTOPSY_TARGET_DTE_DAYS")
+    return value
+
+
 def validate_all() -> dict:
     """Check everything at once; returns the effective limits."""
     return {"capital_inr": str(capital_inr()), "reserve_inr": str(reserve_inr()),
-            "max_contracts": max_contracts()}
+            "max_contracts": max_contracts(),
+            "target_dte_days": target_dte_days(), "min_dte_days": min_dte_days()}

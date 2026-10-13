@@ -51,3 +51,9 @@ Edit `.env` (section 5), then recreate BOTH containers so they re-read it:
 - Invalid values put the worker in standby (`CAPITAL_CONFIG_INVALID`); they never default upward.
 - An open position is unaffected: exits always sell what the broker says you hold.
 - The paper worker's simulated account stays at INR 5,000.
+
+## Which expiry is bought
+Optopsy's screen returns one 0.30-delta call per weekly bucket (up to 84 days) and does not say
+which to trade. The live worker takes the one closest to `OPTOPSY_TARGET_DTE_DAYS` (default 28),
+never shorter than `OPTOPSY_MIN_DTE_DAYS` (default 7). The 24h pre-expiry exit and the RSI>70
+exit are unchanged. The paper worker still uses the soonest expiry, so paper and live differ.

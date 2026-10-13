@@ -219,7 +219,10 @@ def test_capital_defaults_and_validation(monkeypatch):
     from optopsy_delta.capital import CapitalConfigError, validate_all
     for name in ("OPTOPSY_CAPITAL_INR", "OPTOPSY_RESERVE_INR", "OPTOPSY_MAX_CONTRACTS"):
         monkeypatch.delenv(name, raising=False)
-    assert validate_all() == {"capital_inr": "5000", "reserve_inr": "500", "max_contracts": 1}
+    for name in ("OPTOPSY_TARGET_DTE_DAYS", "OPTOPSY_MIN_DTE_DAYS"):
+        monkeypatch.delenv(name, raising=False)
+    assert validate_all() == {"capital_inr": "5000", "reserve_inr": "500", "max_contracts": 1,
+                              "target_dte_days": 28, "min_dte_days": 7}
     for name, bad in [("OPTOPSY_CAPITAL_INR", "abc"), ("OPTOPSY_CAPITAL_INR", "-5"),
                       ("OPTOPSY_CAPITAL_INR", "5000000"), ("OPTOPSY_CAPITAL_INR", "400"),
                       ("OPTOPSY_RESERVE_INR", "6000"), ("OPTOPSY_MAX_CONTRACTS", "0"),
@@ -284,3 +287,37 @@ def test_gateway_enforces_configured_cap_independently(env, monkeypatch):
     order = transport.sent[0]
     assert order.size * 2001 * 0.001 * 85 * 1.05 <= 900  # never exceeds capital - reserve
     assert order.size == 5
+
+
+# ---- expiry preference -----------------------------------------------------------------
+def test_entry_prefers_expiry_near_target_not_the_soonest(env):
+    products = [product(1, days=7), product(2, days=14), product(3, days=28)]
+    products[0]["strike_price"], products[1]["strike_price"] = "90000", "90000"
+    client = FakeClient(products, [ticker(1), ticker(2), ticker(3)])
+    transport = FakeTransport()
+    cycle(env, client, transport, sig=entry_signal)
+    assert [o.product_id for o in transport.sent] == [3]
+
+
+def test_min_dte_blocks_short_dated_only_markets(env):
+    client, transport = FakeClient([product(1, days=3)], [ticker(1)]), FakeTransport()
+    out = cycle(env, client, transport, sig=entry_signal)
+    assert out["event"] == "WAIT_NO_ENTRY_SIGNAL" and transport.sent == []
+    assert any(c.get("event") == "NO_ELIGIBLE_CALL_AT_MIN_DTE" for c in out["checked"])
+
+
+def test_target_and_min_are_configurable_and_validated(env, monkeypatch):
+    from optopsy_delta.capital import CapitalConfigError, validate_all
+    monkeypatch.setenv("OPTOPSY_TARGET_DTE_DAYS", "14")
+    client = FakeClient([product(1, days=7), product(2, days=14), product(3, days=28)],
+                        [ticker(1), ticker(2), ticker(3)])
+    transport = FakeTransport()
+    cycle(env, client, transport, sig=entry_signal)
+    assert transport.sent[0].product_id == 2
+    monkeypatch.setenv("OPTOPSY_MIN_DTE_DAYS", "20")
+    with pytest.raises(CapitalConfigError):
+        validate_all()
+    monkeypatch.setenv("OPTOPSY_MIN_DTE_DAYS", "7")
+    monkeypatch.setenv("OPTOPSY_TARGET_DTE_DAYS", "200")
+    with pytest.raises(CapitalConfigError):
+        validate_all()
