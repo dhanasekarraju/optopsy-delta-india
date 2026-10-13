@@ -17,15 +17,15 @@ def draft(*, total=3, request=2, timestamp=1000):
 
 
 def settled(cid, *, request=2, remain=1, pos=2):
-    return dict(
-        order={"id": 900, "client_order_id": cid, "product_id": 44,
-               "size": request, "unfilled_size": remain,
-               "side": "sell", "reduce_only": True, "state": "cancelled"},
-        fills=[{"id": "fill-1", "order_id": 900, "product_id": 44,
-                "side": "sell", "size": request - remain}] if request > remain else [],
-        position={"size": pos, "product_id": 44},
-        all_active_orders=[], history_complete=True,
-    )
+    return {
+        "order": {"id": 900, "client_order_id": cid, "product_id": 44,
+                  "size": request, "unfilled_size": remain,
+                  "side": "sell", "reduce_only": True, "state": "cancelled"},
+        "fills": [{"id": "fill-1", "order_id": 900, "product_id": 44,
+                   "side": "sell", "size": request - remain}] if request > remain else [],
+        "position": {"size": pos, "product_id": 44},
+        "all_active_orders": [], "history_complete": True,
+    }
 
 
 def make(tmp_path):
