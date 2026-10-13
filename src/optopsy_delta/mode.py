@@ -1,6 +1,7 @@
-"""Single operator setting; LIVE request fails closed until an audited release."""
+"""Single operator setting. LIVE needs TWO operator-set interlocks (config + environment)."""
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 
@@ -27,3 +28,20 @@ def require_paper(path: str | Path = "config.toml") -> None:
     if not paper_enabled(path):
         # Explicitly never infer that false authorizes a financial transaction.
         raise ModeError("LIVE_REQUESTED_BUT_EXECUTION_NOT_RELEASED; no real orders are enabled")
+
+
+LIVE_ENV = "OPTOPSY_LIVE_ENABLED"
+LIVE_VALUE = "YES_REAL_ORDERS"
+
+
+def require_live(path: str | Path = "config.toml") -> None:
+    """Live worker gate: BOTH operator-controlled interlocks must be set explicitly.
+
+    1. config.toml: paper_enabled = false   (paper worker refuses to run in this state)
+    2. environment: OPTOPSY_LIVE_ENABLED=YES_REAL_ORDERS
+    Anything else fails closed. Nothing in this code sets either interlock.
+    """
+    if paper_enabled(path):
+        raise ModeError("PAPER_MODE_ACTIVE; set paper_enabled = false to request live mode")
+    if os.getenv(LIVE_ENV, "") != LIVE_VALUE:
+        raise ModeError("LIVE_ENV_INTERLOCK_NOT_SET; real orders remain disabled")

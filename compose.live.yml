@@ -1,0 +1,29 @@
+# LIVE worker: sends REAL Delta India orders. Stop the paper worker first.
+# Requires BOTH operator interlocks:
+#   1. config.toml -> paper_enabled = false
+#   2. host env    -> OPTOPSY_LIVE_ENABLED=YES_REAL_ORDERS
+# Trading key must be TRADE-ONLY (no withdrawal), IP-whitelisted to this VPS.
+services:
+  live:
+    build:
+      context: .
+      dockerfile: Dockerfile.paper
+    image: optopsy-delta-india:live
+    container_name: optopsy_delta_live
+    restart: unless-stopped
+    user: "${OPTOPSY_UID:-1000}:${OPTOPSY_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 1024m
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    environment:
+      OPTOPSY_LIVE_ENABLED: "${OPTOPSY_LIVE_ENABLED:-NO}"
+      DELTA_TRADE_API_KEY: "${DELTA_TRADE_API_KEY:?set DELTA_TRADE_API_KEY}"
+      DELTA_TRADE_API_SECRET: "${DELTA_TRADE_API_SECRET:?set DELTA_TRADE_API_SECRET}"
+    volumes:
+      - ./data:/opt/optopsy-delta/data:rw
+      - ./config.toml:/opt/optopsy-delta/config.toml:ro
+    command: ["python", "-m", "optopsy_delta.live_worker", "--interval", "60"]
