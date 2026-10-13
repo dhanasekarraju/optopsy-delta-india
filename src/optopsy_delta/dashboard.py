@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from collections.abc import Callable
 
 from .account_preflight import inspect_account
 from .client import DeltaClient, SignatureError
