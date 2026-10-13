@@ -25,7 +25,10 @@ def _parser() -> argparse.ArgumentParser:
     cmds.add_parser("private-status", help="Read wallets, position count and open-order count; no writes")
     cmds.add_parser("account-preflight", help="Private read-only balance and exposure diagnostic")
     cmds.add_parser("rehearse-exits", help="Fully offline exit lifecycle rehearsal; no keys/orders")
-    cmds.add_parser("safety-status", help="One-shot read-only Delta safety status; no trades")
+    p = cmds.add_parser("safety-status", help="One-shot read-only Delta safety status; no trades")
+    p.add_argument("--product-id", type=int)
+    p.add_argument("--lifecycle-db")
+    p.add_argument("--exit-db")
     return parser
 
 
@@ -60,9 +63,21 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(screen_snapshot_file(args.snapshot), indent=2))
         return 0
     if args.command == "safety-status":
+        from .existing_journals import existing_exit_status, existing_lifecycle_status
         from .safety_watchdog import read_only_watchdog_check
 
-        report = read_only_watchdog_check(client=DeltaClient())
+        if args.product_id is not None and args.product_id <= 0:
+            _parser().error("product ID must be positive")
+        if (args.lifecycle_db is not None or args.exit_db is not None) and (
+            args.product_id is None
+        ):
+            _parser().error("product ID required when checking journal paths")
+        report = read_only_watchdog_check(
+            client=DeltaClient(),
+            product_id=args.product_id,
+            lifecycle_status=existing_lifecycle_status(args.lifecycle_db),
+            exit_status=existing_exit_status(args.exit_db),
+        )
         print(json.dumps(report, indent=2))
         return 0
     if args.command == "rehearse-exits":
