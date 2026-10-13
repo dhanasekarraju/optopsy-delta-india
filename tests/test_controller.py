@@ -30,12 +30,12 @@ def inputs():
         "underlying": "BTC", "entry": True, "exit": False,
         "last_complete_utc_day": "2026-10-12",
     }
-    kw = dict(
-        client=client, intent_journal=intents, lifecycle=lifecycle,
-        exit_attempts=exits, signal=signal, contract=contract,
-        quote=None, now=NOW,
-        safety_cutoff=NOW + timedelta(days=6), order_size=1,
-    )
+    kw = {
+        "client": client, "intent_journal": intents, "lifecycle": lifecycle,
+        "exit_attempts": exits, "signal": signal, "contract": contract,
+        "quote": None, "now": NOW,
+        "safety_cutoff": NOW + timedelta(days=6), "order_size": 1,
+    }
     return kw
 
 
