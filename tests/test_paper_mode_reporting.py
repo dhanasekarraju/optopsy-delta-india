@@ -46,14 +46,14 @@ def test_reporting_counts_round_trip_and_fees(tmp_path):
                 "contract_value": "0.01",
                 "expiry_utc": (NOW + timedelta(days=7)).isoformat()}
     ledger.apply(action_id="open:2026-10-12:44", side="buy",
-                 contract=contract, price=Decimal("20"), quantity=1,
+                 contract=contract, price=Decimal(20), quantity=1,
                  day="2026-10-12", now=NOW)
     report = read_paper_status(path)
     assert report["closed_trades"] == 0
     assert report["position"]["product_id"] == 44
     assert report["realized_pnl_inr"] == "0"
     ledger.apply(action_id="close:2026-10-12:44", side="sell",
-                 contract=contract, price=Decimal("19"), quantity=1,
+                 contract=contract, price=Decimal(19), quantity=1,
                  day="2026-10-12", now=NOW)
     report = read_paper_status(path)
     assert report["closed_trades"] == 1
