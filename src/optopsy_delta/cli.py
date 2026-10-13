@@ -1,0 +1,68 @@
+"""Read-only CLI; there is intentionally NO live order submission command."""
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .client import DeltaClient, DeltaError
+from .snapshot import snapshot_to_rows, write_snapshot, snapshots_to_daily_optopsy
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="optopsy-delta",
+                                     description="Optopsy Delta India read-only connector")
+    cmds = parser.add_subparsers(dest="command", required=True)
+    p = cmds.add_parser("capture", help="Capture exact public quote/product snapshot")
+    p.add_argument("--underlying", choices=("BTC", "ETH"), required=True)
+    p.add_argument("--directory", default="data/delta-snapshots")
+    p = cmds.add_parser("export-daily", help="Daily-only Optopsy-compatible CSV (NOT intraday)")
+    p.add_argument("--directory", default="data/delta-snapshots")
+    p.add_argument("--output", required=True)
+    cmds.add_parser("private-status", help="Read wallets, position count and open-order count; no writes")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.command == "capture":
+        client = DeltaClient()
+        # Verify product metadata is complete before recording.
+        products = client.live_products()
+        tickers = client.option_tickers(args.underlying)
+        now = datetime.now(timezone.utc)
+        path = write_snapshot(args.directory, underlying=args.underlying,
+                              captured_at=now, tickers=tickers, products=products)
+        normalized = snapshot_to_rows(tickers, products, captured_at=now)
+        print(f"Saved {path}; raw tickers={len(tickers)}, usable quotes={len(normalized)}")
+        if not normalized:
+            print("WARNING: zero valid Optopsy rows; inspect product metadata. Raw quotes saved.")
+        return 0
+    if args.command == "export-daily":
+        paths = sorted(Path(args.directory).glob("*.json"))
+        snapshots = [json.loads(p.read_text(encoding="utf-8")) for p in paths]
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        df = snapshots_to_daily_optopsy(snapshots)
+        df.to_csv(output, index=False)
+        print(f"Exported {len(df)} daily contract quotes to {output}; NOT intraday evidence")
+        return 0
+    if args.command == "private-status":
+        client = DeltaClient()
+        balances = client.wallet_balances()
+        positions = client.open_positions()
+        orders = client.active_orders()
+        # Don't print private holdings or credentials; operator can inspect exchange UI.
+        print(json.dumps({"wallet_rows": len(balances),
+                          "position_rows": len(positions) if isinstance(positions, list) else None,
+                          "open_order_rows": len(orders)}))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except DeltaError as exc:
+        raise SystemExit(f"Delta error: {exc}") from None
