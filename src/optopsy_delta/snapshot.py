@@ -7,8 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 
 class SnapshotError(ValueError):
     pass
@@ -117,6 +115,12 @@ def snapshots_to_daily_optopsy(snapshots: list[dict]) -> pd.DataFrame:
     rows = [r for s in snapshots for r in s.get("normalized", [])]
     if not rows:
         raise SnapshotError("No valid option quotes available")
+    # Heavy NumPy/Pandas imports are deliberately deferred to the optional daily export.
+    # Public BTC/ETH capture must work even on VPS CPUs lacking X86_V2 instructions.
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise SnapshotError("Daily CSV export requires the optional [analysis] extra") from exc
     df = pd.DataFrame(rows)
     df["quote_date"] = pd.to_datetime(df["quote_date"], utc=True)
     df["expiration"] = pd.to_datetime(df["expiration"], utc=True)

@@ -34,6 +34,12 @@ python3.12 -m venv .venv
 
 Or, for data collection only, `pip install -e .` (without Optopsy). No private keys necessary for public `capture`.
 
+On CPU-limited VPS hosts, the default data-only install does not install or import
+Pandas/NumPy; use this Docker image for public captures. For optional daily CSV
+export, install `pip install -e ".[analysis]"` in a compatible analysis environment.
+Optopsy research remains opt-in via `[research]` and its upstream strategy
+implementation is unchanged.
+
 **Read-only account check** (optional): set `DELTA_INDIA_API_KEY` and `DELTA_INDIA_API_SECRET` using a secure environment and run `optopsy-delta private-status`; keys must lack trading permissions. No credentials are printed by the application.
 
 ### Output reliability

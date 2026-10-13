@@ -1,4 +1,6 @@
 """Smoke checks for read-only public data capture."""
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,3 +42,25 @@ def test_capture_usable_quotes_success(monkeypatch):
     )
     monkeypatch.setattr(cli, "write_snapshot", lambda *args, **kwargs: Path("raw.json"))
     assert cli.main(["capture", "--underlying", "ETH"]) == 0
+
+def test_readonly_cli_import_does_not_require_numpy_or_pandas():
+    """Regression for VPS CPU with no X86_V2 support."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import builtins\n"
+            "_old = builtins.__import__\n"
+            "def _guard(name, *args, **kwargs):\n"
+            "    if name.split('.', 1)[0] in ('numpy', 'pandas'):\n"
+            "        raise AssertionError('unwanted research dependency during capture import')\n"
+            "    return _old(name, *args, **kwargs)\n"
+            "builtins.__import__ = _guard\n"
+            "import optopsy_delta.cli\n",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
