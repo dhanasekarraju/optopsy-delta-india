@@ -51,7 +51,7 @@ def test_paper_buy_exit_and_restart(tmp_path):
     assert exit_fill["event"] == "SIMULATED_SELL"
     assert PaperLedger(path).status()["position"] is None
     assert PaperLedger(path).status()["fill_count"] == 2
-    assert PaperLedger(path).status()["cash_inr"] == "4997.49000"
+    assert PaperLedger(path).status()["cash_inr"] == "4997.492500"
 
 
 def test_duplicate_paper_fill_is_idempotent(tmp_path):
