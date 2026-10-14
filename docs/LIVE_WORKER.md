@@ -57,3 +57,16 @@ Optopsy's screen returns one 0.30-delta call for each listed expiry date (up to 
 does not say which expiry to trade. The live worker takes the one closest to `OPTOPSY_TARGET_DTE_DAYS` (default 28),
 never shorter than `OPTOPSY_MIN_DTE_DAYS` (default 7). The 24h pre-expiry exit and the RSI>70
 exit are unchanged. The paper worker still uses the soonest expiry, so paper and live differ.
+
+## Exit rules
+A position is sold when ANY of these happens (checked every cycle):
+1. Stop-loss: price you could sell at is `OPTOPSY_STOP_LOSS_PCT` (default 50) below your entry
+   price on 2 consecutive checks. Filters one-off thin quotes.
+2. Take-profit: sell price is `OPTOPSY_TAKE_PROFIT_PCT` (default 100, i.e. doubled) above entry.
+3. Daily RSI closes above 70 (the original Optopsy exit).
+4. 24 hours before expiry.
+Set a percentage to 0 to switch that rule off. Entry price comes from Delta's position data; if it
+is missing the bot holds and shows "P&L unavailable" rather than guessing. Checks run every
+`--interval` seconds (default 60), so a fast move can pass a level between checks, and a thin
+order book can leave a sell unfilled until the next cycle. After ANY exit, no new entry is made
+until a new oversold signal day (previously the bot could re-buy within minutes).

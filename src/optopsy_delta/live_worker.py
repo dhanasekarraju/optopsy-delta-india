@@ -10,6 +10,8 @@ Safety model (kept from the repository's gateway design):
 * The BROKER is the source of truth for positions; local state only records our attempts.
 * Expiry: among Optopsy's per-expiry 0.30-delta calls, the one nearest OPTOPSY_TARGET_DTE_DAYS
   (default 28) and at least OPTOPSY_MIN_DTE_DAYS (default 7). Paper worker keeps soonest expiry.
+* Exits: RSI > 70 (original), stop-loss (default -50%, needs 2 consecutive checks), take-profit
+  (default +100%), and 24h before expiry. Set a % to 0 to switch that exit off.
 * One position at a time, IOC limit orders only. Allocation, reserve and max contracts come from
   .env (defaults INR 5,000 / 500 / 1) and are enforced again by ``live_gateway.validate``. Entries need a flat, order-free account.
 * Every order is journaled before submission; an order with unknown outcome is never
@@ -35,6 +37,8 @@ from .capital import (
     max_contracts,
     min_dte_days,
     reserve_inr,
+    stop_loss_pct,
+    take_profit_pct,
     target_dte_days,
     validate_all,
 )
@@ -57,6 +61,7 @@ from .snapshot import _iso_datetime
 FX_INR = Decimal(85)  # Delta India documented fixed USD/INR convention (may change).
 EXPIRY_GUARD = timedelta(hours=24)
 MAX_EXIT_ATTEMPTS_PER_DAY = 20
+STOP_CONFIRM_CYCLES = 2  # stop-loss must hold on consecutive checks (filters thin-quote flicker)
 ENTRY_RULE = "optopsy.rsi_below(period=14, threshold=30)"
 EXIT_RULE = "optopsy.rsi_above(period=14, threshold=70)"
 
@@ -94,6 +99,7 @@ class AttemptBook:
                 signal_id TEXT PRIMARY KEY, side TEXT NOT NULL, product_id INTEGER NOT NULL,
                 underlying TEXT NOT NULL, day TEXT NOT NULL, created_at TEXT NOT NULL,
                 resolved INTEGER NOT NULL DEFAULT 0, filled INTEGER)""")
+            con.execute("CREATE TABLE IF NOT EXISTS watch (key TEXT PRIMARY KEY, n INTEGER NOT NULL)")
         os.chmod(self.path, 0o600)
 
     def _db(self) -> sqlite3.Connection:
@@ -142,6 +148,27 @@ class AttemptBook:
             return con.execute(
                 "SELECT COUNT(*) FROM attempts WHERE side='sell' AND day=? AND product_id=?",
                 (day, product_id)).fetchone()[0]
+
+    def bump(self, key: str) -> int:
+        with closing(self._db()) as con:
+            con.execute("INSERT INTO watch (key,n) VALUES (?,1)"
+                        " ON CONFLICT(key) DO UPDATE SET n = n + 1", (key,))
+            return con.execute("SELECT n FROM watch WHERE key=?", (key,)).fetchone()[0]
+
+    def reset(self, key: str) -> None:
+        with closing(self._db()) as con:
+            con.execute("DELETE FROM watch WHERE key=?", (key,))
+
+    def exited_after(self, signal_day: str) -> bool:
+        """True if any exit with real fills happened AFTER this signal's candle closed.
+
+        An entry signal is judged on yesterday's closed candle. Any exit (stop, target, expiry
+        guard) later than that means this signal has been used; wait for a new signal day.
+        """
+        with closing(self._db()) as con:
+            return con.execute(
+                "SELECT 1 FROM attempts WHERE side='sell' AND day > ? AND filled > 0",
+                (signal_day,)).fetchone() is not None
 
     def exited_on(self, day: str) -> bool:
         """True once an exit with real fills happened on this UTC day (paper-worker parity)."""
@@ -267,19 +294,29 @@ def _held_position(client: DeltaClient, book: AttemptBook, live_ids: set[int]) -
     for pid in sorted(pids, key=str):
         if type(pid) is not int:
             raise LiveWorkerError("Invalid position product ID")
-        size = Decimal(str(client.product_position(pid).get("size", "")))
+        position = client.product_position(pid)
+        size = Decimal(str(position.get("size", "")))
         if size != 0:
-            open_positions.append((pid, size))
+            open_positions.append((pid, size, position.get("entry_price")))
     if not open_positions:
         return None
     if len(open_positions) > 1:
         raise LiveWorkerError("MULTIPLE_OPEN_POSITIONS_MANUAL_ACTION")
-    pid, size = open_positions[0]
+    pid, size, entry_price = open_positions[0]
     if pid not in known:
         raise LiveWorkerError("UNKNOWN_POSITION_NOT_OPENED_BY_THIS_BOT_MANUAL_ACTION")
     if size < 0 or size != size.to_integral_value():
         raise LiveWorkerError("UNEXPECTED_SHORT_OR_FRACTIONAL_POSITION_MANUAL_ACTION")
-    return {"product_id": pid, "underlying": known[pid], "size": int(size)}
+    return {"product_id": pid, "underlying": known[pid], "size": int(size),
+            "entry_price": entry_price}
+
+
+def _confirmed(book: AttemptBook, key: str, condition: bool) -> bool:
+    """True only after the condition held on STOP_CONFIRM_CYCLES consecutive checks."""
+    if not condition:
+        book.reset(key)
+        return False
+    return book.bump(key) >= STOP_CONFIRM_CYCLES
 
 
 def _manage_exit(*, held: dict, by_id: dict, client: DeltaClient, now: datetime,
@@ -295,24 +332,48 @@ def _manage_exit(*, held: dict, by_id: dict, client: DeltaClient, now: datetime,
         signal = _verified_signal(evaluate(underlying, load_candles(underlying, now=now)), now)
         signal_exit = signal.get("exit") is True
         rsi = signal.get("rsi_14")
-    except Exception as exc:  # noqa: BLE001 - the time-based exit must not depend on signals
+    except Exception as exc:  # noqa: BLE001 - time/stop/target exits must not depend on signals
         signal_error = type(exc).__name__
     time_exit = now >= expiry - EXPIRY_GUARD
-    base = {"position": held, "signal_error": signal_error,
-            "rsi_summary": f"{underlying} RSI {rsi}" if rsi is not None else None}
-    if not (signal_exit or time_exit):
-        return {"event": "HOLD", **base}
-    ticker = next((t for t in client.option_tickers(underlying)
-                   if isinstance(t, dict) and t.get("product_id") == pid), None)
+
+    # Live quote every cycle: needed for stop-loss / take-profit, and for any exit.
+    quote = None
     try:
+        ticker = next((t for t in client.option_tickers(underlying)
+                       if isinstance(t, dict) and t.get("product_id") == pid), None)
         if ticker is None:
             raise LiveWorkerError("No ticker for held product")
         quote = _quote(ticker, product)
-        size = min(held["size"], int(quote["bid_size"]))
-        if size < 1:
-            raise LiveWorkerError("No bid depth")
     except LiveWorkerError:
-        return {"event": "EXIT_DUE_QUOTE_UNAVAILABLE", **base}
+        quote = None
+
+    target, stop = take_profit_pct(), stop_loss_pct()
+    try:
+        entry = _dec(held.get("entry_price"), "entry price")
+    except LiveWorkerError:
+        entry = None
+    pnl_pct, take_hit, stop_hit = None, False, False
+    if quote is not None and entry is not None:
+        pnl_pct = (quote["bid"] - entry) / entry * 100  # what you could sell for vs paid
+        take_hit = target > 0 and pnl_pct >= target
+        stop_hit = _confirmed(book, f"sl-{pid}", stop > 0 and pnl_pct <= -stop)
+    else:
+        book.reset(f"sl-{pid}")
+    levels = (f"target {'+' + format(target, 'f') + '%' if target else 'off'}, "
+              f"stop {'-' + format(stop, 'f') + '%' if stop else 'off'}")
+    summary = (f"P&L {pnl_pct:+.1f}% vs entry ({levels})" if pnl_pct is not None
+               else f"P&L unavailable: no entry price or live quote ({levels})")
+    base = {"position": {k: v for k, v in held.items() if k != "entry_price"},
+            "signal_error": signal_error, "position_summary": summary,
+            "rsi_summary": f"{underlying} RSI {rsi}" if rsi is not None else None}
+    reasons = [name for name, hit in (("PRE_EXPIRY_EXIT", time_exit), ("STOP_LOSS", stop_hit),
+                                      ("TAKE_PROFIT", take_hit), ("SIGNAL_EXIT", signal_exit))
+               if hit]
+    if not reasons:
+        return {"event": "HOLD", **base}
+    size = min(held["size"], int(quote["bid_size"])) if quote is not None else 0
+    if quote is None or size < 1:
+        return {"event": "EXIT_DUE_QUOTE_UNAVAILABLE", "reason": reasons[0], **base}
     day = now.astimezone(UTC).date().isoformat()
     attempt = book.exit_attempts(day, pid) + 1
     if attempt > MAX_EXIT_ATTEMPTS_PER_DAY:
@@ -325,8 +386,7 @@ def _manage_exit(*, held: dict, by_id: dict, client: DeltaClient, now: datetime,
     checks = {"cash_inr": 0, "tick_size": _fmt(quote["tick"]), "observed_bid": _fmt(quote["bid"]),
               "observed_ask": _fmt(quote["ask"]), "observed_depth": _fmt(quote["bid_size"]),
               "external_exposure": False}
-    reason = "SIGNAL_EXIT" if signal_exit else "PRE_EXPIRY_EXIT"
-    return {**base, "reason": reason,
+    return {**base, "reason": reasons[0],
             **_place(intent=intent, underlying=underlying, day=day, now=now, book=book,
                      journal=journal, transport=transport, checks=checks)}
 
@@ -346,7 +406,7 @@ def _consider_entry(*, products: list, client: DeltaClient, now: datetime, evalu
         if signal.get("entry") is not True or signal.get("exit") is not False:
             waits.append({"underlying": underlying, "event": "WAIT_NO_ENTRY_SIGNAL"})
             continue
-        if book.exited_on(day):
+        if book.exited_after(day):
             waits.append({"underlying": underlying, "event": "WAIT_EXITED_THIS_SIGNAL_DAY"})
             continue
         tickers = client.option_tickers(underlying)

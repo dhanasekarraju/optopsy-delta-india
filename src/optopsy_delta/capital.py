@@ -86,8 +86,25 @@ def min_dte_days() -> int:
     return value
 
 
+def take_profit_pct() -> Decimal:
+    """Sell when the option is up this % vs your entry price. 0 = off. Default 100 (doubled)."""
+    value = _env_decimal("OPTOPSY_TAKE_PROFIT_PCT", Decimal(100))
+    if not 0 <= value <= 1000:
+        raise CapitalConfigError("OPTOPSY_TAKE_PROFIT_PCT must be from 0 (off) to 1000")
+    return value
+
+
+def stop_loss_pct() -> Decimal:
+    """Sell when the option is down this % vs your entry price. 0 = off. Default 50."""
+    value = _env_decimal("OPTOPSY_STOP_LOSS_PCT", Decimal(50))
+    if not 0 <= value <= 95:
+        raise CapitalConfigError("OPTOPSY_STOP_LOSS_PCT must be from 0 (off) to 95")
+    return value
+
+
 def validate_all() -> dict:
     """Check everything at once; returns the effective limits."""
     return {"capital_inr": str(capital_inr()), "reserve_inr": str(reserve_inr()),
             "max_contracts": max_contracts(),
-            "target_dte_days": target_dte_days(), "min_dte_days": min_dte_days()}
+            "target_dte_days": target_dte_days(), "min_dte_days": min_dte_days(),
+            "take_profit_pct": str(take_profit_pct()), "stop_loss_pct": str(stop_loss_pct())}

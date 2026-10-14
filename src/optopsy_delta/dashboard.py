@@ -106,6 +106,7 @@ function renderLive(live){
  const ev=live.event||live.status||"NO_LIVE_HEARTBEAT",a=live.at?age(live.at):null;
  set("live-state",FRIENDLY[ev]||ev.replaceAll("_"," "));
  const bits=[];if(a!==null)bits.push("updated "+fmt(a));
+ if(live.position_summary)bits.push(live.position_summary);
  if(live.rsi_summary)bits.push(live.rsi_summary.replaceAll(" | "," · ")+" (buys below 30, sells above 70)");
  for(const k of["reason","symbol","side","journal_stage","error_type","detail"])if(live[k])bits.push(live[k]);
  set("live-detail",bits.join(" · ")||"The live worker has not reported yet.");
@@ -210,7 +211,7 @@ def _read_live_heartbeat(path: str) -> dict:
     except Exception:  # noqa: BLE001
         return {"status": "LIVE_HEARTBEAT_UNREADABLE"}
     keep = ("event", "at", "reason", "symbol", "side", "error_type", "detail",
-            "underlying", "journal_stage", "rsi_summary")
+            "underlying", "journal_stage", "rsi_summary", "position_summary")
     return {k: str(obj[k])[:200] for k in keep if isinstance(obj, dict) and k in obj}
 
 

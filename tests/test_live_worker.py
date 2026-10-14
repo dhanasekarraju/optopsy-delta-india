@@ -44,6 +44,7 @@ class FakeClient:
         self.wallets = wallet() if wallets is None else wallets
         self.positions = [] if positions is None else positions
         self.sizes = {} if sizes is None else sizes
+        self.entry_prices = {}
 
     def live_products(self):
         return self.products
@@ -61,7 +62,7 @@ class FakeClient:
         return []
 
     def product_position(self, pid):
-        return {"size": self.sizes.get(pid, 0)}
+        return {"size": self.sizes.get(pid, 0), "entry_price": self.entry_prices.get(pid)}
 
 
 class FakeTransport(DeltaTradingTransport):
@@ -221,8 +222,11 @@ def test_capital_defaults_and_validation(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     for name in ("OPTOPSY_TARGET_DTE_DAYS", "OPTOPSY_MIN_DTE_DAYS"):
         monkeypatch.delenv(name, raising=False)
+    for name in ("OPTOPSY_TAKE_PROFIT_PCT", "OPTOPSY_STOP_LOSS_PCT"):
+        monkeypatch.delenv(name, raising=False)
     assert validate_all() == {"capital_inr": "5000", "reserve_inr": "500", "max_contracts": 1,
-                              "target_dte_days": 28, "min_dte_days": 7}
+                              "target_dte_days": 28, "min_dte_days": 7,
+                              "take_profit_pct": "100", "stop_loss_pct": "50"}
     for name, bad in [("OPTOPSY_CAPITAL_INR", "abc"), ("OPTOPSY_CAPITAL_INR", "-5"),
                       ("OPTOPSY_CAPITAL_INR", "5000000"), ("OPTOPSY_CAPITAL_INR", "400"),
                       ("OPTOPSY_RESERVE_INR", "6000"), ("OPTOPSY_MAX_CONTRACTS", "0"),
@@ -330,3 +334,78 @@ def test_waiting_cycle_reports_rsi_for_both_markets(env):
     out = cycle(env, client, transport, sig=with_rsi)
     assert out["event"] == "WAIT_NO_ENTRY_SIGNAL"
     assert out["rsi_summary"] == "BTC RSI 47.3 | ETH RSI 55.1" and transport.sent == []
+
+
+# ---- take-profit / stop-loss --------------------------------------------------------------
+def holding(env, *, entry="13"):
+    """Buy via the bot once, then report the position at the broker with a given entry price."""
+    client, transport = FakeClient([product(1)], [ticker(1)]), FakeTransport()
+    cycle(env, client, transport, sig=entry_signal)
+    client.sizes, client.entry_prices = {1: 1}, {1: entry}
+    return client, transport
+
+
+def no_signal(und):
+    return signal(underlying=und)
+
+
+def test_take_profit_sells_when_price_doubles(env):
+    client, transport = holding(env)
+    client.tickers = [ticker(1, bid="27", ask="28")]  # +107% vs 13
+    out = cycle(env, client, transport, sig=no_signal)
+    assert out["reason"] == "TAKE_PROFIT" and out["event"] == "ORDER_SUBMITTED"
+    sell = transport.sent[-1]
+    assert (sell.side, sell.limit_price, sell.reduce_only) == ("sell", "27", True)
+
+
+def test_stop_loss_needs_two_consecutive_checks_and_resets_on_recovery(env):
+    client, transport = holding(env)
+    low = [ticker(1, bid="6", ask="7")]  # -54% vs 13
+    client.tickers = low
+    assert cycle(env, client, transport, sig=no_signal)["event"] == "HOLD"  # first look only
+    client.tickers = [ticker(1, bid="12", ask="13")]                          # recovered
+    assert cycle(env, client, transport, sig=no_signal)["event"] == "HOLD"
+    client.tickers = low
+    assert cycle(env, client, transport, sig=no_signal)["event"] == "HOLD"  # counter restarted
+    out = cycle(env, client, transport, sig=no_signal)                        # 2nd in a row
+    assert out["reason"] == "STOP_LOSS" and transport.sent[-1].side == "sell"
+
+
+def test_rules_can_be_switched_off(env, monkeypatch):
+    monkeypatch.setenv("OPTOPSY_TAKE_PROFIT_PCT", "0")
+    monkeypatch.setenv("OPTOPSY_STOP_LOSS_PCT", "0")
+    client, transport = holding(env)
+    for bid in ("30", "2", "2"):
+        client.tickers = [ticker(1, bid=bid, ask=str(float(bid) + 1))]
+        assert cycle(env, client, transport, sig=no_signal)["event"] == "HOLD"
+    assert len(transport.sent) == 1  # only the original buy
+
+
+def test_missing_entry_price_holds_safely_instead_of_guessing(env):
+    client, transport = holding(env, entry=None)
+    client.tickers = [ticker(1, bid="1", ask="2")]
+    out = cycle(env, client, transport, sig=no_signal)
+    assert out["event"] == "HOLD" and "unavailable" in out["position_summary"]
+    assert len(transport.sent) == 1
+
+
+def test_no_reentry_on_same_signal_after_any_exit(env):
+    client, transport = holding(env)
+    client.tickers = [ticker(1, bid="27", ask="28")]
+    cycle(env, client, transport, sig=no_signal)             # take-profit sells
+    client.sizes = {}                                         # flat again at the broker
+    client.tickers = [ticker(1)]
+    out = cycle(env, client, transport, sig=entry_signal)     # oversold still true today
+    assert out["event"] == "WAIT_NO_ENTRY_SIGNAL"
+    assert any(c.get("event") == "WAIT_EXITED_THIS_SIGNAL_DAY" for c in out["checked"])
+    assert [o.side for o in transport.sent] == ["buy", "sell"]
+
+
+def test_exit_percentages_are_validated(monkeypatch):
+    from optopsy_delta.capital import CapitalConfigError, validate_all
+    for name, bad in [("OPTOPSY_STOP_LOSS_PCT", "100"), ("OPTOPSY_STOP_LOSS_PCT", "-5"),
+                      ("OPTOPSY_TAKE_PROFIT_PCT", "5000"), ("OPTOPSY_TAKE_PROFIT_PCT", "x")]:
+        monkeypatch.setenv(name, bad)
+        with pytest.raises(CapitalConfigError):
+            validate_all()
+        monkeypatch.delenv(name)
