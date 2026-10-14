@@ -321,3 +321,12 @@ def test_target_and_min_are_configurable_and_validated(env, monkeypatch):
     monkeypatch.setenv("OPTOPSY_TARGET_DTE_DAYS", "200")
     with pytest.raises(CapitalConfigError):
         validate_all()
+
+
+def test_waiting_cycle_reports_rsi_for_both_markets(env):
+    def with_rsi(und):
+        return {**signal(underlying=und), "rsi_14": 47.3 if und == "BTC" else 55.1}
+    client, transport = FakeClient([product(1)], [ticker(1)]), FakeTransport()
+    out = cycle(env, client, transport, sig=with_rsi)
+    assert out["event"] == "WAIT_NO_ENTRY_SIGNAL"
+    assert out["rsi_summary"] == "BTC RSI 47.3 | ETH RSI 55.1" and transport.sent == []

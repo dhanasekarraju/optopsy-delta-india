@@ -6,6 +6,7 @@ VPS broker client, because this host may lack NumPy's required CPU features.
 """
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from math import isfinite
@@ -76,6 +77,17 @@ def closed_candles(
     return ordered
 
 
+def _display_rsi(data: Any) -> float | None:
+    """Latest RSI(14) for display only, same indicator Optopsy uses. Never drives a decision."""
+    try:
+        import pandas_ta_classic as ta
+        value = ta.rsi(data["close"], length=14).iloc[-1]
+        number = float(value)
+        return None if math.isnan(number) else round(number, 1)
+    except Exception:  # noqa: BLE001 - display must never break signal evaluation
+        return None
+
+
 def evaluate_original_rsi(
     underlying: str, candles: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -119,4 +131,5 @@ def evaluate_original_rsi(
         "entry_rule": "optopsy.rsi_below(period=14, threshold=30)",
         "exit_rule": "optopsy.rsi_above(period=14, threshold=70)",
         "parameters_tuned": False,
+        "rsi_14": _display_rsi(data),  # informational only
     }

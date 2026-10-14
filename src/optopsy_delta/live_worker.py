@@ -290,14 +290,16 @@ def _manage_exit(*, held: dict, by_id: dict, client: DeltaClient, now: datetime,
     if product is None:
         raise LiveWorkerError("HELD_PRODUCT_NOT_LIVE_MANUAL_ACTION")
     expiry = _iso_datetime(product.get("settlement_time") or product.get("expiry_time"))
-    signal_exit, signal_error = False, None
+    signal_exit, signal_error, rsi = False, None, None
     try:
         signal = _verified_signal(evaluate(underlying, load_candles(underlying, now=now)), now)
         signal_exit = signal.get("exit") is True
+        rsi = signal.get("rsi_14")
     except Exception as exc:  # noqa: BLE001 - the time-based exit must not depend on signals
         signal_error = type(exc).__name__
     time_exit = now >= expiry - EXPIRY_GUARD
-    base = {"position": held, "signal_error": signal_error}
+    base = {"position": held, "signal_error": signal_error,
+            "rsi_summary": f"{underlying} RSI {rsi}" if rsi is not None else None}
     if not (signal_exit or time_exit):
         return {"event": "HOLD", **base}
     ticker = next((t for t in client.option_tickers(underlying)
@@ -335,10 +337,12 @@ def _consider_entry(*, products: list, client: DeltaClient, now: datetime, evalu
     if (data_dir / "STOP_ENTRIES").exists():
         return {"event": "ENTRIES_PAUSED_BY_OPERATOR_FILE"}
     by_id = {p.get("id"): p for p in products if isinstance(p, dict)}
-    waits = []
+    waits, rsis = [], []
     for underlying in ("BTC", "ETH"):
         signal = _verified_signal(evaluate(underlying, load_candles(underlying, now=now)), now)
         day = signal["last_complete_utc_day"]
+        if signal.get("rsi_14") is not None:
+            rsis.append(f"{underlying} RSI {signal['rsi_14']}")
         if signal.get("entry") is not True or signal.get("exit") is not False:
             waits.append({"underlying": underlying, "event": "WAIT_NO_ENTRY_SIGNAL"})
             continue
@@ -385,7 +389,7 @@ def _consider_entry(*, products: list, client: DeltaClient, now: datetime, evalu
         return {"underlying": underlying, "symbol": contract["symbol"],
                 **_place(intent=intent, underlying=underlying, day=day, now=now, book=book,
                          journal=journal, transport=transport, checks=checks)}
-    return {"event": "WAIT_NO_ENTRY_SIGNAL", "checked": waits}
+    return {"event": "WAIT_NO_ENTRY_SIGNAL", "checked": waits, "rsi_summary": " | ".join(rsis) or None}
 
 
 def run_once(*, client: DeltaClient, transport: DeltaTradingTransport, journal: LiveIntentJournal,

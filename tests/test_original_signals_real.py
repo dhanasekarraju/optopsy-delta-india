@@ -24,3 +24,10 @@ def test_falling_market_fires_entry_not_exit():
 def test_rising_market_fires_exit_not_entry():
     sig = evaluate_original_rsi("ETH", candles(lambda i: 3000 + i * 25))
     assert sig["exit"] is True and sig["entry"] is False
+
+
+def test_display_rsi_is_reported_and_consistent_with_the_signal():
+    falling = evaluate_original_rsi("BTC", candles(lambda i: 100000 - i * 400))
+    rising = evaluate_original_rsi("ETH", candles(lambda i: 3000 + i * 25))
+    assert falling["rsi_14"] < 30 and falling["entry"] is True
+    assert rising["rsi_14"] > 70 and rising["exit"] is True
